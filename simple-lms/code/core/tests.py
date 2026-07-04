@@ -8,7 +8,18 @@ from django.test import TestCase
 from ninja.errors import HttpError
 
 from core.apiv1 import rate_limit
-from core.mongo import get_learning_analytics, log_activity
+from core.mongo import (
+    ACTIVITY_LOGS_COLLECTION,
+    LEARNING_ANALYTICS_COLLECTION,
+    build_activity_document,
+    delete_activity_logs,
+    get_learning_analytics,
+    list_activity_logs,
+    log_activity,
+    record_daily_login,
+    sync_learning_analytics,
+    update_activity_logs,
+)
 from core.tasks import (
     export_course_report,
     generate_certificate,
@@ -59,9 +70,39 @@ class RoleDecoratorTests(TestCase):
 
 
 class MongoHelperTests(TestCase):
+    def _mock_db(self):
+        db = MagicMock()
+        activity_collection = MagicMock()
+        analytics_collection = MagicMock()
+        db.__getitem__.side_effect = lambda key: {
+            ACTIVITY_LOGS_COLLECTION: activity_collection,
+            LEARNING_ANALYTICS_COLLECTION: analytics_collection,
+        }[key]
+        return db, activity_collection, analytics_collection
+
+    def test_build_activity_document_embeds_snapshots(self):
+        user = TestDataFactory.create_user(role="student")
+        course = TestDataFactory.create_course(instructor=TestDataFactory.create_user(role="instructor"))
+        lesson = TestDataFactory.create_lesson(course=course, order=1)
+
+        document = build_activity_document(
+            user_id=user.id,
+            user_role=user.role,
+            action="LESSON_COMPLETE",
+            user=user,
+            course=course,
+            lesson=lesson,
+            metadata={"browser": "Chrome"},
+        )
+
+        self.assertEqual(document["user_snapshot"]["username"], user.username)
+        self.assertEqual(document["course_snapshot"]["name"], course.name)
+        self.assertEqual(document["lesson_snapshot"]["title"], lesson.title)
+        self.assertIsNotNone(document["created_at"])
+
     def test_log_activity_inserts_expected_document(self):
-        db = Mock()
-        db.activity_log.insert_one.return_value.inserted_id = "mongo-id"
+        db, activity_collection, _ = self._mock_db()
+        activity_collection.insert_one.return_value.inserted_id = "mongo-id"
 
         with patch("core.mongo.get_mongo_db", return_value=db):
             inserted_id = log_activity(
@@ -74,19 +115,23 @@ class MongoHelperTests(TestCase):
             )
 
         self.assertEqual(inserted_id, "mongo-id")
-        inserted_document = db.activity_log.insert_one.call_args.args[0]
+        inserted_document = activity_collection.insert_one.call_args.args[0]
         self.assertEqual(inserted_document["user_id"], 10)
         self.assertEqual(inserted_document["action"], "TEST_ACTION")
         self.assertEqual(inserted_document["metadata"]["source"], "test")
+        self.assertIsNotNone(inserted_document["created_at"])
 
     def test_get_learning_analytics_builds_match_stage_when_course_filter_is_given(self):
-        db = Mock()
-        db.activity_log.aggregate.return_value = [{"_id": 1, "total_actions": 4, "unique_user_count": 2}]
+        db, activity_collection, analytics_collection = self._mock_db()
+        analytics_collection.find.return_value.sort.return_value = []
+        activity_collection.aggregate.return_value = [
+            {"course_id": 1, "total_actions": 4, "unique_user_count": 2, "action_type_count": 1}
+        ]
 
         with patch("core.mongo.get_mongo_db", return_value=db):
             result = get_learning_analytics(course_id=1)
 
-        pipeline = db.activity_log.aggregate.call_args.args[0]
+        pipeline = activity_collection.aggregate.call_args.args[0]
         self.assertEqual(pipeline[0], {"$match": {"course_id": 1}})
         self.assertEqual(result[0]["total_actions"], 4)
 
@@ -100,6 +145,86 @@ class MongoHelperTests(TestCase):
 
         mocked_client.assert_called_once_with(settings.MONGODB_URI)
         self.assertIs(db, fake_client.__getitem__.return_value)
+
+    def test_list_activity_logs_reads_from_mongo_with_sort_and_limit(self):
+        db, activity_collection, _ = self._mock_db()
+        cursor = MagicMock()
+        cursor.sort.return_value.skip.return_value.limit.return_value = [
+            {"_id": "mongo-1", "action": "COURSE_VIEW", "created_at": "2026-07-04T00:00:00"}
+        ]
+        activity_collection.find.return_value = cursor
+
+        with patch("core.mongo.get_mongo_db", return_value=db):
+            logs = list_activity_logs(filters={"action": "COURSE_VIEW"}, limit=5, skip=10)
+
+        activity_collection.find.assert_called_once_with({"action": "COURSE_VIEW"})
+        self.assertEqual(logs[0]["action"], "COURSE_VIEW")
+
+    def test_update_activity_logs_uses_set_operator(self):
+        db, activity_collection, _ = self._mock_db()
+        activity_collection.update_many.return_value = SimpleNamespace(
+            matched_count=3,
+            modified_count=2,
+            upserted_id=None,
+        )
+
+        with patch("core.mongo.get_mongo_db", return_value=db):
+            result = update_activity_logs(
+                filters={"action": "COURSE_VIEW"},
+                updates={"reviewed": True},
+            )
+
+        activity_collection.update_many.assert_called_once_with(
+            {"action": "COURSE_VIEW"},
+            {"$set": {"reviewed": True}},
+            upsert=False,
+        )
+        self.assertEqual(result["modified_count"], 2)
+
+    def test_delete_activity_logs_returns_deleted_count(self):
+        db, activity_collection, _ = self._mock_db()
+        activity_collection.delete_many.return_value.deleted_count = 4
+
+        with patch("core.mongo.get_mongo_db", return_value=db):
+            deleted_count = delete_activity_logs(filters={"action": "TEST"})
+
+        self.assertEqual(deleted_count, 4)
+
+    def test_record_daily_login_uses_upsert_and_increment(self):
+        db, activity_collection, _ = self._mock_db()
+        activity_collection.update_one.return_value = SimpleNamespace(
+            matched_count=0,
+            modified_count=0,
+            upserted_id="login-id",
+        )
+
+        with patch("core.mongo.get_mongo_db", return_value=db):
+            result = record_daily_login(user_id=1)
+
+        self.assertEqual(result["upserted_id"], "login-id")
+        _, kwargs = activity_collection.update_one.call_args
+        self.assertTrue(kwargs["upsert"])
+
+    def test_sync_learning_analytics_persists_aggregated_documents(self):
+        db, _, analytics_collection = self._mock_db()
+
+        with patch(
+            "core.mongo.aggregate_learning_analytics",
+            return_value=[
+                {
+                    "course_id": 1,
+                    "course_name": "Django API",
+                    "total_actions": 5,
+                    "unique_user_count": 2,
+                    "action_type_count": 3,
+                    "last_activity_at": "2026-07-04T12:00:00",
+                }
+            ],
+        ), patch("core.mongo.get_mongo_db", return_value=db):
+            result = sync_learning_analytics()
+
+        analytics_collection.replace_one.assert_called_once()
+        self.assertEqual(result["synced_count"], 1)
 
 
 class CeleryTaskTests(TestCase):
@@ -224,6 +349,74 @@ class ApiIntegrationTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertTrue(mocked_log_activity.called)
         self.assertTrue(User.objects.filter(username="newstudent").exists())
+
+    @patch("core.apiv1.list_activity_logs")
+    def test_admin_can_get_activity_logs(self, mocked_list_activity_logs):
+        mocked_list_activity_logs.return_value = [
+            {
+                "_id": "mongo-1",
+                "user_id": self.student.id,
+                "user_role": "student",
+                "action": "COURSE_VIEW",
+                "course_id": self.course.id,
+                "lesson_id": None,
+                "metadata": {"browser": "Chrome"},
+                "user_snapshot": None,
+                "course_snapshot": None,
+                "lesson_snapshot": None,
+                "created_at": "2026-07-04T00:00:00",
+            }
+        ]
+        headers = self.auth_header(self.admin.username, self.admin_password)
+
+        response = self.client.get("/api/analytics/activity-logs", **headers)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()[0]["id"], "mongo-1")
+
+    @patch("core.apiv1.get_learning_analytics")
+    def test_instructor_learning_analytics_is_filtered_to_owned_courses(self, mocked_get_learning_analytics):
+        other_instructor = TestDataFactory.create_user(role="instructor", username="other_teacher")
+        other_course = TestDataFactory.create_course(
+            instructor=other_instructor,
+            category=self.category,
+            name="Other Course",
+        )
+        mocked_get_learning_analytics.return_value = [
+            {
+                "course_id": self.course.id,
+                "course_name": self.course.name,
+                "total_actions": 5,
+                "unique_user_count": 2,
+                "action_type_count": 3,
+                "last_activity_at": "2026-07-04T00:00:00",
+            },
+            {
+                "course_id": other_course.id,
+                "course_name": other_course.name,
+                "total_actions": 8,
+                "unique_user_count": 4,
+                "action_type_count": 2,
+                "last_activity_at": "2026-07-04T00:00:00",
+            },
+        ]
+        headers = self.auth_header(self.instructor.username, self.instructor_password)
+
+        response = self.client.get("/api/analytics/learning", **headers)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(len(response.json()), 1)
+        self.assertEqual(response.json()[0]["course_id"], self.course.id)
+
+    @patch("core.apiv1.sync_learning_analytics")
+    def test_admin_can_rebuild_learning_analytics(self, mocked_sync_learning_analytics):
+        mocked_sync_learning_analytics.return_value = {"synced_count": 2, "course_id": None}
+        headers = self.auth_header(self.admin.username, self.admin_password)
+
+        response = self.client.post("/api/analytics/learning/rebuild", **headers)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["synced_count"], 2)
 
     @patch("core.apiv1.log_activity")
     def test_auth_me_returns_authenticated_user(self, mocked_log_activity):

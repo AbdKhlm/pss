@@ -13,7 +13,7 @@ Simple LMS is a Learning Management System built with Django, Django Ninja, Post
 - Role-Based Access Control (RBAC) with `@is_admin`, `@is_instructor`, and `@is_student`
 - Redis-based caching for course list and course detail endpoints
 - Redis-backed request throttling for custom API endpoints in `core/apiv1.py`
-- MongoDB activity logging
+- MongoDB activity logging and persisted learning analytics
 - Celery tasks for email, certificates, report export, and scheduled statistics
 - RabbitMQ as Celery broker
 - Flower dashboard for Celery monitoring
@@ -60,7 +60,11 @@ simple-lms/
 ├── requirements.txt
 ├── README.md
 └── code/
+    ├── chapter11/
+    │   ├── test_cache.py
+    │   └── weather_api.py
     ├── manage.py
+    ├── locustfile.py
     ├── config/
     │   ├── __init__.py
     │   ├── asgi.py
@@ -73,11 +77,14 @@ simple-lms/
     │   ├── mongo.py
     │   ├── schemas.py
     │   ├── tasks.py
+    │   ├── tests.py
     │   └── utils.py
     ├── courses/
     │   ├── admin.py
+    │   ├── fixtures/
     │   ├── migrations/
     │   ├── models.py
+    │   ├── test_factories.py
     │   └── tests.py
     ├── templates/
     │   └── landing.html
@@ -124,6 +131,8 @@ POSTGRES_HOST=db
 POSTGRES_PORT=5432
 DEBUG=1
 SECRET_KEY=change-this-secret
+MONGODB_URI=mongodb://mongodb:27017/
+MONGODB_DB_NAME=simple_lms
 ```
 
 ### 2. Start all services with Docker
@@ -189,8 +198,8 @@ This project is aligned with the Chapter 09 topic: advanced API integration with
 | Cache invalidation strategy | Done | Triggered on create, update, and delete course |
 | Rate limiting 60 req/min | Done | Applied in custom endpoints through `rate_limit()` |
 | Activity Log collection | Done | Stored in MongoDB collection `activity_log` |
-| Learning Analytics collection | Partial | Analytics are generated through aggregation queries from `activity_log`; not persisted by current code into a dedicated `learning_analytics` collection |
-| Aggregation queries for reports | Done | Available through `get_learning_analytics()` in `core/mongo.py` |
+| Learning Analytics collection | Done | Aggregation result can be persisted into MongoDB collection `learning_analytics` through `sync_learning_analytics()` |
+| Aggregation queries for reports | Done | Available through `aggregate_learning_analytics()` and `get_learning_analytics()` in `core/mongo.py` |
 | `send_enrollment_email` | Done | Celery task |
 | `generate_certificate` | Done | Celery task |
 | `update_course_statistics` | Done | Scheduled Celery Beat task |
@@ -254,6 +263,117 @@ This project also includes a simple Redis caching exercise for a simulated weath
 docker-compose exec web python chapter11/test_cache.py
 ```
 
+## Chapter 12 Coverage
+
+This project now uses MongoDB as a document store for activity logs and analytics, with CRUD helper functions, embedded snapshots, aggregation pipelines, and analytics endpoints exposed through Django Ninja.
+
+### Learning objectives coverage
+
+| Objective | Implementation |
+| --- | --- |
+| Document-oriented database concepts | Reflected in `activity_logs` and `learning_analytics` collections with flexible `metadata` documents |
+| Setup MongoDB using Docker Compose | `mongodb` service exposed on port `27017` in [docker-compose.yml](file:///E:/SEMESTER%206/PSS/simple-lms/docker-compose.yml) |
+| CRUD operations in MongoDB | Implemented in [code/core/mongo.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/mongo.py) via `log_activity()`, `list_activity_logs()`, `update_activity_logs()`, `delete_activity_logs()`, and `record_daily_login()` |
+| Document modeling (embedding vs referencing) | Activity logs embed `user_snapshot`, `course_snapshot`, and `lesson_snapshot` while still storing relational IDs |
+| Aggregation pipeline for analytics | Implemented through `build_learning_analytics_pipeline()` and `aggregate_learning_analytics()` |
+| Django integration with `pymongo` | Mongo helpers are consumed by [code/core/apiv1.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/apiv1.py) and covered in [code/core/tests.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/tests.py) |
+
+### Deliverables status
+
+| Deliverable | Status | Notes |
+| --- | --- | --- |
+| MongoDB service in Docker | Done | Service `mongodb` with persistent volume and port mapping |
+| CRUD operations | Done | Insert, read, update, delete, and upsert helper functions implemented |
+| Activity log collection | Done | Stored in `activity_logs` |
+| Learning analytics collection | Done | Persisted in `learning_analytics` |
+| Aggregation pipeline | Done | Course-level activity analytics available and can be rebuilt |
+| API integration | Done | Analytics endpoints added under `/api/analytics/*` |
+| Automated tests | Done | Mongo helper and analytics API tests added |
+
+### MongoDB collections
+
+#### `activity_logs`
+
+Document shape:
+
+```json
+{
+  "_id": "ObjectId",
+  "user_id": 1,
+  "user_role": "student",
+  "action": "COURSE_VIEW",
+  "course_id": 2,
+  "lesson_id": null,
+  "metadata": {
+    "browser": "Chrome",
+    "duration_seconds": 1200
+  },
+  "user_snapshot": {
+    "id": 1,
+    "username": "student1",
+    "email": "student1@example.com",
+    "role": "student"
+  },
+  "course_snapshot": {
+    "id": 2,
+    "name": "Django Basics",
+    "category_id": 1,
+    "instructor_id": 3,
+    "instructor_username": "teacher1"
+  },
+  "lesson_snapshot": null,
+  "created_at": "2026-07-04T00:00:00+00:00"
+}
+```
+
+This uses a hybrid modeling approach:
+
+- referencing for stable relational identifiers: `user_id`, `course_id`, `lesson_id`
+- embedding for read-optimized snapshots: `user_snapshot`, `course_snapshot`, `lesson_snapshot`
+
+#### `learning_analytics`
+
+Aggregated document shape:
+
+```json
+{
+  "course_id": 2,
+  "course_name": "Django Basics",
+  "total_actions": 42,
+  "unique_user_count": 10,
+  "action_type_count": 4,
+  "last_activity_at": "2026-07-04T00:00:00+00:00"
+}
+```
+
+### MongoDB shell verification
+
+```bash
+# Open Mongo shell inside the container
+docker-compose exec mongodb mongosh
+
+# Switch to the app database
+use simple_lms
+
+# Show collections
+show collections
+
+# Read latest activity logs
+db.activity_logs.find().sort({ created_at: -1 }).limit(5)
+
+# Mark course views as reviewed
+db.activity_logs.updateMany(
+  { action: "COURSE_VIEW" },
+  { $set: { reviewed: true } }
+)
+
+# Count course view logs
+db.activity_logs.countDocuments({ action: "COURSE_VIEW" })
+
+# Read persisted analytics
+db.learning_analytics.find().sort({ total_actions: -1 })
+```
+
 ## REST API
 
 The API is registered in [code/config/urls.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/config/urls.py) and implemented in [code/core/apiv1.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/apiv1.py).
@@ -295,6 +415,16 @@ The `sign-in` and `token-refresh` endpoints are provided by `mobile_auth_router`
 | GET | `/api/enrollments/my-courses` | Get current user's enrollments |
 | POST | `/api/enrollments/{enrollment_id}/progress` | Mark a lesson as completed |
 
+### Analytics
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/analytics/activity-logs` | Read MongoDB activity logs with optional `course_id`, `action`, `limit`, `offset` |
+| GET | `/api/analytics/learning` | Read aggregated course analytics with optional `course_id` and `refresh` |
+| POST | `/api/analytics/learning/rebuild` | Rebuild and persist `learning_analytics` collection (`admin`) |
+| PATCH | `/api/analytics/activity-logs/review` | Mark activity logs as reviewed by `action` (`admin`) |
+| DELETE | `/api/analytics/activity-logs` | Delete activity logs by `action` (`admin`) |
+
 ### Caching
 
 - Course list cache key: `courses_list:{search}:{category}:{limit}:{offset}`
@@ -308,8 +438,9 @@ Custom endpoints implemented in `core/apiv1.py` call `rate_limit()` and are limi
 
 ### MongoDB usage
 
-- `activity_log`: stores user activity inserted by `log_activity()`
-- Analytics are currently derived through aggregation in [code/core/mongo.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/mongo.py), not persisted as a separate collection by application code
+- `activity_logs`: stores user activity inserted by `log_activity()`
+- `learning_analytics`: stores persisted aggregation results from `sync_learning_analytics()`
+- Aggregation queries are built in [code/core/mongo.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/mongo.py) and can be exposed through `/api/analytics/learning`
 
 ### Celery tasks
 
@@ -343,6 +474,13 @@ Custom endpoints implemented in `core/apiv1.py` call `rate_limit()` and are limi
 3. `export_course_report.delay(course_id)` is sent to RabbitMQ
 4. `celery-worker` generates CSV content in the background
 
+### Analytics rebuild flow
+
+1. Admin calls `POST /api/analytics/learning/rebuild`
+2. Django aggregates `activity_logs` through MongoDB aggregation pipeline
+3. Each course summary is upserted into `learning_analytics`
+4. Analytics can then be queried quickly through `GET /api/analytics/learning`
+
 ### Scheduled statistics flow
 
 1. `celery-beat` triggers `update_course_statistics` every 5 minutes
@@ -357,7 +495,7 @@ Custom endpoints implemented in `core/apiv1.py` call `rate_limit()` and are limi
 | `web` | Django application |
 | `db` | PostgreSQL relational database |
 | `redis` | Cache and rate-limit counter store |
-| `mongodb` | Document storage for activity logs |
+| `mongodb` | Document storage for activity logs and analytics |
 | `rabbitmq` | Celery message broker |
 | `celery-worker` | Background task worker |
 | `celery-beat` | Scheduler for periodic tasks |
@@ -463,6 +601,11 @@ The model layer includes queryset helpers in [code/courses/models.py](file:///E:
 
 The codebase also uses `select_related`, `prefetch_related`, and `annotate(...)` for common course and enrollment queries.
 
+MongoDB-side analytics use:
+
+- descending indexes on `created_at`, `user_id`, `course_id`, and `action`
+- persisted summaries in `learning_analytics` for repeated reads
+
 ## Django Admin
 
 Admin configuration lives in [code/courses/admin.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/courses/admin.py) and includes:
@@ -480,6 +623,7 @@ Admin configuration lives in [code/courses/admin.py](file:///E:/SEMESTER%206/PSS
 - API Schemas: [code/core/schemas.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/schemas.py)
 - Role Decorators: [code/core/utils.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/utils.py)
 - MongoDB Integration: [code/core/mongo.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/mongo.py)
+- Chapter 11 Demo: [code/chapter11/weather_api.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/chapter11/weather_api.py)
 - Celery Tasks: [code/core/tasks.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/tasks.py)
 - Django Settings: [code/config/settings.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/config/settings.py)
 - Celery Config: [code/config/celery.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/config/celery.py)
@@ -507,7 +651,7 @@ Submission target from the assignment brief:
 | Kriteria | Bobot | Kondisi di Repo |
 | --- | --- | --- |
 | Redis caching implementation | 25% | Implemented for course list, course detail, invalidation, and rate limiting |
-| MongoDB integration | 20% | Activity log and aggregation queries are implemented; dedicated `learning_analytics` persistence is not yet implemented |
+| MongoDB integration | 20% | Activity log CRUD, aggregation pipeline, and persisted `learning_analytics` collection are implemented |
 | Celery tasks (minimal 4 tasks) | 25% | 4 tasks implemented in `core/tasks.py` |
 | Docker Compose dengan semua services | 15% | Implemented in `docker-compose.yml` |
 | Monitoring dan documentation | 15% | README, Mermaid architecture, Redis CLI docs, task flow, and Flower monitoring documented |

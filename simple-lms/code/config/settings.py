@@ -167,8 +167,8 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 # MongoDB settings
-MONGODB_URI = "mongodb://mongodb:27017/"
-MONGODB_DB_NAME = "simple_lms"
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://mongodb:27017/")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "simple_lms")
 
 
 if any(arg in sys.argv for arg in {"test", "pytest"}):

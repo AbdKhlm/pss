@@ -11,10 +11,17 @@ from core.schemas import (
     CourseIn, CourseOut, DetailCourseOut, CourseUpdateIn,
     UserOut, UserRegisterIn, UserUpdateIn,
     MessageOut, EnrollmentOut, EnrollmentIn,
-    ProgressIn
+    ProgressIn, ActivityLogOut, LearningAnalyticsOut, MongoSyncOut
 )
 from core.utils import is_admin, is_instructor, is_student
-from core.mongo import log_activity
+from core.mongo import (
+    delete_activity_logs,
+    get_learning_analytics,
+    list_activity_logs,
+    log_activity,
+    sync_learning_analytics,
+    update_activity_logs,
+)
 from core.tasks import send_enrollment_email, generate_certificate, export_course_report
 
 
@@ -55,6 +62,12 @@ def clear_cache_pattern(pattern):
         print(f"Error clearing cache: {e}")
 
 
+def get_accessible_course_ids(user):
+    if user.role == "admin":
+        return None
+    return list(Course.objects.filter(instructor=user).values_list("id", flat=True))
+
+
 # ======================
 # AUTH ENDPOINTS (Registration, Me, Update)
 # ======================
@@ -87,7 +100,8 @@ def register(request, data: UserRegisterIn):
         user_id=new_user.id,
         user_role=new_user.role,
         action="USER_REGISTER",
-        metadata={"username": new_user.username}
+        metadata={"username": new_user.username},
+        user=new_user,
     )
 
     return new_user
@@ -99,7 +113,8 @@ def get_current_user(request):
     log_activity(
         user_id=request.user.id,
         user_role=request.user.role,
-        action="USER_GET_ME"
+        action="USER_GET_ME",
+        user=request.user,
     )
     return request.user
 
@@ -115,7 +130,8 @@ def update_profile(request, data: UserUpdateIn):
     log_activity(
         user_id=user.id,
         user_role=user.role,
-        action="USER_UPDATE_PROFILE"
+        action="USER_UPDATE_PROFILE",
+        user=user,
     )
     return user
 
@@ -172,7 +188,9 @@ def get_course(request, course_id: int):
         user_id=request.user.id if hasattr(request, 'user') and request.user.is_authenticated else None,
         user_role=request.user.role if hasattr(request, 'user') and request.user.is_authenticated else None,
         action="COURSE_VIEW",
-        course_id=course_id
+        course_id=course_id,
+        user=request.user if hasattr(request, 'user') and request.user.is_authenticated else None,
+        course=course,
     )
 
     return course
@@ -204,7 +222,9 @@ def create_course(request, data: CourseIn):
         user_id=request.user.id,
         user_role=request.user.role,
         action="COURSE_CREATE",
-        course_id=course.id
+        course_id=course.id,
+        user=request.user,
+        course=course,
     )
     return 201, course
 
@@ -232,7 +252,9 @@ def update_course(request, course_id: int, data: CourseUpdateIn):
         user_id=request.user.id,
         user_role=request.user.role,
         action="COURSE_UPDATE",
-        course_id=course_id
+        course_id=course_id,
+        user=request.user,
+        course=course,
     )
     return course
 
@@ -252,7 +274,9 @@ def delete_course(request, course_id: int):
         user_id=request.user.id,
         user_role=request.user.role,
         action="COURSE_DELETE",
-        course_id=course_id
+        course_id=course_id,
+        user=request.user,
+        course=course,
     )
     return 204, None
 
@@ -280,7 +304,9 @@ def enroll(request, data: EnrollmentIn):
         user_id=request.user.id,
         user_role=request.user.role,
         action="ENROLLMENT_CREATE",
-        course_id=course.id
+        course_id=course.id,
+        user=request.user,
+        course=course,
     )
 
     return 201, enrollment
@@ -318,7 +344,10 @@ def mark_lesson_complete(request, enrollment_id: int, data: ProgressIn):
         user_role=request.user.role,
         action="LESSON_COMPLETE",
         course_id=enrollment.course.id,
-        lesson_id=lesson.id
+        lesson_id=lesson.id,
+        user=request.user,
+        course=enrollment.course,
+        lesson=lesson,
     )
 
     # Check if course is complete to generate certificate
@@ -345,6 +374,90 @@ def export_report(request, course_id: int):
         user_id=request.user.id,
         user_role=request.user.role,
         action="COURSE_EXPORT_REPORT",
-        course_id=course_id
+        course_id=course_id,
+        user=request.user,
+        course=course,
     )
     return {"message": "Report export started, check Celery logs for details"}
+
+
+# ======================
+# ANALYTICS ENDPOINTS (MongoDB)
+# ======================
+@api.get('/analytics/activity-logs', response=List[ActivityLogOut], auth=apiAuth, tags=["Analytics"])
+@is_instructor
+def get_activity_logs(
+    request,
+    course_id: Optional[int] = None,
+    action: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+):
+    rate_limit(request)
+    filters = {}
+
+    if request.user.role != "admin":
+        accessible_course_ids = get_accessible_course_ids(request.user)
+        filters["course_id"] = {"$in": accessible_course_ids}
+        if course_id and course_id not in accessible_course_ids:
+            raise HttpError(403, "Forbidden")
+
+    if course_id:
+        filters["course_id"] = course_id
+    if action:
+        filters["action"] = action
+
+    logs = list_activity_logs(filters=filters, limit=limit, skip=offset)
+    for log in logs:
+        log["id"] = log.pop("_id")
+    return logs
+
+
+@api.get('/analytics/learning', response=List[LearningAnalyticsOut], auth=apiAuth, tags=["Analytics"])
+@is_instructor
+def learning_analytics(request, course_id: Optional[int] = None, refresh: bool = False):
+    rate_limit(request)
+    if request.user.role != "admin" and course_id:
+        course = get_object_or_404(Course, id=course_id)
+        if course.instructor_id != request.user.id:
+            raise HttpError(403, "Forbidden")
+
+    analytics = get_learning_analytics(course_id=course_id, refresh=refresh)
+    if request.user.role == "admin":
+        return analytics
+
+    accessible_course_ids = set(get_accessible_course_ids(request.user))
+    return [item for item in analytics if item.get("course_id") in accessible_course_ids]
+
+
+@api.post('/analytics/learning/rebuild', response=MongoSyncOut, auth=apiAuth, tags=["Analytics"])
+@is_admin
+def rebuild_learning_analytics(request, course_id: Optional[int] = None):
+    rate_limit(request)
+    result = sync_learning_analytics(course_id=course_id)
+    return {
+        "message": "Learning analytics collection synced",
+        "synced_count": result["synced_count"],
+    }
+
+
+@api.patch('/analytics/activity-logs/review', response=MongoSyncOut, auth=apiAuth, tags=["Analytics"])
+@is_admin
+def review_activity_logs(request, action: str = "COURSE_VIEW"):
+    rate_limit(request)
+    result = update_activity_logs(
+        filters={"action": action},
+        updates={"reviewed": True},
+    )
+    return {
+        "message": "Activity logs updated",
+        "synced_count": result["modified_count"],
+    }
+
+
+@api.delete('/analytics/activity-logs', response=MessageOut, auth=apiAuth, tags=["Analytics"])
+@is_admin
+def remove_activity_logs(request, action: str):
+    rate_limit(request)
+    deleted_count = delete_activity_logs(filters={"action": action})
+    return {"message": f"Deleted {deleted_count} activity logs"}
