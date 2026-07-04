@@ -35,9 +35,9 @@ class CategoryAdmin(admin.ModelAdmin):
 # ======================
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ('title', 'instructor', 'category', 'lesson_count')
+    list_display = ('name', 'instructor', 'category', 'lesson_count', 'price')
     list_filter = ('category', 'instructor')
-    search_fields = ('title',)
+    search_fields = ('name',)
     inlines = [LessonInline]
 
     def get_queryset(self, request):
@@ -53,7 +53,7 @@ class CourseAdmin(admin.ModelAdmin):
 @admin.register(Enrollment)
 class EnrollmentAdmin(admin.ModelAdmin):
     list_display = ('student', 'course', 'enrolled_at', 'progress_percent')
-    search_fields = ('student__username', 'course__title')
+    search_fields = ('student__username', 'course__name')
     list_filter = ('course',)
 
     def get_queryset(self, request):

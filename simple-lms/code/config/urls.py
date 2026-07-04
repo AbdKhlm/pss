@@ -17,15 +17,13 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from django.views.generic import TemplateView
-from django.http import HttpResponse
 from django.conf import settings
 from django.conf.urls.static import static
-from django.db import models
-from django.contrib.auth.models import AbstractUser
-from django.db import connection
+from core.apiv1 import api
 
 
 urlpatterns = [
     path('', TemplateView.as_view(template_name='landing.html'), name='home'),
     path('admin/', admin.site.urls),
+    path('api/v1/', api.urls),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

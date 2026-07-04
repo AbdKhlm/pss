@@ -54,8 +54,10 @@ class CourseQuerySet(models.QuerySet):
 # COURSE
 # ======================
 class Course(models.Model):
-    title = models.CharField(max_length=255)
+    name = models.CharField(max_length=255)
     description = models.TextField()
+    price = models.IntegerField(default=0)
+    image = models.CharField(max_length=255, blank=True, default="")
 
     instructor = models.ForeignKey(
         User,
@@ -71,11 +73,12 @@ class Course(models.Model):
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     objects = CourseQuerySet.as_manager()
 
     def __str__(self):
-        return self.title
+        return self.name
 
 
 # ======================

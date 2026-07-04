@@ -1,303 +1,213 @@
-# 🎓 Simple LMS (Django ORM)
+# Simple LMS
 
-Simple Learning Management System (LMS) berbasis **Django ORM** yang mendemonstrasikan:
+Simple Learning Management System built with Django, PostgreSQL, Docker, Django Admin, and Django Ninja.
 
-* Desain database relasional
-* Implementasi model dengan berbagai relasi
-* Optimasi query (`select_related`, `prefetch_related`)
-* Integrasi Django Admin
-* Demonstrasi N+1 problem vs optimized query
+This project demonstrates:
 
----
+- relational database design with Django ORM
+- custom user roles (`admin`, `instructor`, `student`)
+- course, lesson, enrollment, and progress management
+- query optimization with `select_related`, `prefetch_related`, and annotations
+- basic REST API implementation with Django Ninja
 
-# 🚀 Features
+## Features
 
-* 👤 Custom User dengan role (admin, instructor, student)
-* 🗂️ Category hierarchy (self-referencing)
-* 📚 Course & Lesson (ordered content)
-* 🧾 Enrollment system (unique constraint)
-* 📈 Progress tracking per lesson
-* ⚡ Query optimization (efficient ORM usage)
-* 🛠️ Django Admin interface
-* 🧪 Unit testing
-* 📦 Initial data fixtures
+- Custom `User` model with role-based data
+- Category hierarchy using self-referencing relation
+- Course and lesson management
+- Enrollment and lesson progress tracking
+- Optimized queryset helpers for listing and dashboard use cases
+- Django Admin configuration for core models
+- Basic REST API under `/api/v1/`
+- Docker-based local development setup
 
----
+## Tech Stack
 
-# 🏗️ Project Structure
+- Django
+- PostgreSQL
+- Django Ninja
+- Gunicorn
+- WhiteNoise
+- Docker / Docker Compose
 
-```
+## Project Structure
+
+```text
 simple-lms/
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
+├── README.md
+├── manage.py
 └── code/
     ├── manage.py
-    ├── lms/
+    ├── config/
+    │   ├── settings.py
+    │   ├── urls.py
+    │   └── wsgi.py
+    ├── core/
+    │   ├── apiv1.py
+    │   └── schemas.py
     ├── courses/
-    │   ├── models.py
     │   ├── admin.py
-    │   ├── tests.py
-    │   └── migrations/
-    └── fixtures/
-        └── initial_data.json
+    │   ├── migrations/
+    │   ├── models.py
+    │   └── tests.py
+    ├── templates/
+    │   └── landing.html
+    └── static/
 ```
 
----
+## Data Model Summary
 
-# 🧠 Database Design
+### Main entities
 
-## 📌 Entity Relationship
+- `User`: extends Django `AbstractUser` and adds `role`
+- `Category`: supports parent-child category hierarchy
+- `Course`: belongs to an instructor and optional category
+- `Lesson`: belongs to a course and has ordering per course
+- `Enrollment`: links a student to a course
+- `Progress`: tracks lesson completion for a student
 
-* **User**
+### Relationship summary
 
-  * role: admin / instructor / student
+| Model | Relation |
+| --- | --- |
+| `Course -> User` | `ForeignKey` |
+| `Course -> Category` | `ForeignKey` |
+| `Lesson -> Course` | `ForeignKey` |
+| `Enrollment -> User` | `ForeignKey` |
+| `Enrollment -> Course` | `ForeignKey` |
+| `Progress -> Lesson` | `ForeignKey` |
+| `Progress -> User` | `ForeignKey` |
+| `Progress -> Enrollment` | `ForeignKey` |
 
-* **Category**
+## Running the Project
 
-  * self-referencing (parent-child)
-
-* **Course**
-
-  * belongs to instructor (User)
-  * belongs to Category
-
-* **Lesson**
-
-  * belongs to Course
-  * ordered
-
-* **Enrollment**
-
-  * many-to-many (User ↔ Course)
-
-* **Progress**
-
-  * track lesson completion per student
-
----
-
-## 🔗 Relationships Summary
-
-| Model                      | Relation                     |
-| -------------------------- | ---------------------------- |
-| Course → User              | ForeignKey                   |
-| Course → Category          | ForeignKey                   |
-| Lesson → Course            | ForeignKey                   |
-| Enrollment → User & Course | Many-to-Many (through model) |
-| Progress → Lesson & User   | ForeignKey                   |
-
----
-
-# ⚙️ Setup & Installation
-
-## 1. Clone Repository
-
-```bash
-git clone <your-repo-url>
-cd simple-lms
-```
-
----
-
-## 2. Run with Docker
+### 1. Start with Docker
 
 ```bash
 docker-compose up --build
 ```
 
----
+The `web` service automatically runs migrations and `collectstatic` before starting Gunicorn.
 
-## 3. Apply Migration
+### 2. Access the application
 
-```bash
-docker-compose exec web python manage.py migrate
-```
+- Home: `http://localhost:8000/`
+- Django Admin: `http://localhost:8000/admin`
+- API docs: `http://localhost:8000/api/v1/docs`
 
----
-
-## 4. Load Initial Data
-
-```bash
-docker-compose exec web python manage.py loaddata fixtures/initial_data.json
-```
-
----
-
-## 5. Create Superuser
+### 3. Create a superuser
 
 ```bash
 docker-compose exec web python manage.py createsuperuser
 ```
 
----
-
-## 6. Access Admin
-
-```
-http://localhost:8000/admin
-```
-
----
-
-# ⚡ Query Optimization
-
-## ❌ N+1 Problem
-
-```python
-courses = Course.objects.all()
-
-for c in courses:
-    print(c.instructor.username)
-```
-
-➡️ Menghasilkan banyak query (1 + N)
-
----
-
-## ✅ Optimized Query
-
-```python
-courses = Course.objects.select_related('instructor')
-
-for c in courses:
-    print(c.instructor.username)
-```
-
-➡️ Hanya 1 query
-
----
-
-## 🚀 Custom QuerySet
-
-### Course Listing
-
-```python
-Course.objects.for_listing()
-```
-
-Optimasi:
-
-* `select_related('instructor', 'category')`
-* `prefetch_related('lessons')`
-* `annotate(lesson_count, student_count)`
-
----
-
-### Student Dashboard
-
-```python
-Enrollment.objects.for_student_dashboard()
-```
-
-Optimasi:
-
-* join course & instructor
-* prefetch lessons & progress
-* annotate progress
-
----
-
-# 🛠️ Django Admin Features
-
-* 📊 Informative list display
-* 🔍 Search functionality
-* 🎯 Filtering (role, category, instructor)
-* 🧩 Inline Lesson editing
-* 📈 Progress percentage display
-
----
-
-# 🧪 Testing
-
-Run tests:
+### 4. Run tests
 
 ```bash
 docker-compose exec web python manage.py test
 ```
 
-Coverage:
+## REST API
 
-* Model relationships
-* Unique constraints
-* Progress calculation
-* QuerySet functionality
+The API is registered in [code/config/urls.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/config/urls.py) and implemented in [code/core/apiv1.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/apiv1.py).
 
----
+### Base path
 
-# 📦 Fixtures
-
-File:
-
-```
-fixtures/initial_data.json
+```text
+/api/v1/
 ```
 
-Berisi:
+### Available endpoints
 
-* Sample user
-* Category
-* Course
-* Lesson
-* Enrollment
+- `GET /api/v1/courses/`
+- `GET /api/v1/courses/{course_id}/`
+- `POST /api/v1/courses/`
+- `PUT /api/v1/courses/{course_id}/`
+- `DELETE /api/v1/courses/{course_id}/`
 
----
+### Example request and response
 
-# 📚 Key Concepts Implemented
+#### Get course detail
 
-* Object Relational Mapping (ORM)
-* Database normalization
-* Query optimization
-* Aggregation (`annotate`)
-* Reverse relationship handling
-* Indexing & constraints
+```http
+GET /api/v1/courses/2/
+```
 
----
+```json
+{
+  "id": 2,
+  "name": "Pemrograman Web",
+  "description": "Belajar membuat aplikasi web",
+  "price": 50000,
+  "image": "",
+  "teacher": {
+    "id": 3,
+    "username": "dosen01",
+    "first_name": "Budi",
+    "last_name": "Santoso",
+    "email": "budi@example.com"
+  },
+  "created_at": "2026-07-04T04:19:08.971Z",
+  "updated_at": "2026-07-04T04:19:08.971Z",
+  "contents": [
+    { "id": 1, "name": "Pengenalan Django" },
+    { "id": 2, "name": "Instalasi dan Setup" },
+    { "id": 3, "name": "Model dan Migration" }
+  ]
+}
+```
 
-# 🎯 Learning Objectives Achieved
+#### Create course
 
-✅ Database schema design
-✅ Django ORM implementation
-✅ Query optimization
-✅ Admin configuration
-✅ Data migration & fixtures
-✅ Query performance comparison
+```http
+POST /api/v1/courses/
+Content-Type: application/json
+```
 
----
+```json
+{
+  "name": "Machine Learning",
+  "description": "Belajar ML dengan Python",
+  "price": 75000
+}
+```
 
-# 📊 Query Comparison (Example)
+## Query Optimization
 
-| Scenario  | Query Count |
-| --------- | ----------- |
-| N+1 Query | ~100+       |
-| Optimized | ~1–3        |
+The project includes queryset helpers in [code/courses/models.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/courses/models.py):
 
----
+- `Course.objects.for_listing()`
+- `Enrollment.objects.for_student_dashboard()`
 
-# 🚀 Future Improvements
+Examples of optimizations used:
 
-* REST API (Django REST Framework)
-* Authentication (JWT)
-* Course progress UI
-* Caching (Redis)
-* Pagination
+- `select_related('instructor', 'category')`
+- `prefetch_related('lessons')`
+- `annotate(...)` for aggregated data
 
----
+## Django Admin
 
-# 👨‍💻 Author
+Admin configuration is available in [code/courses/admin.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/courses/admin.py) and includes:
 
-* Name: Abdul Khalim
-* Course: Pemrograman Sisi Server
-* Assignment: Django ORM - Simple LMS
+- searchable user, course, and enrollment data
+- course filtering by category and instructor
+- inline lesson editing inside courses
+- progress percentage display for enrollments
 
----
+## Important Files
 
-# 📌 Notes
+- Models: [code/courses/models.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/courses/models.py)
+- Admin: [code/courses/admin.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/courses/admin.py)
+- API routes: [code/core/apiv1.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/apiv1.py)
+- API schemas: [code/core/schemas.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/schemas.py)
+- Project URLs: [code/config/urls.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/config/urls.py)
+- Docker config: [docker-compose.yml](file:///E:/SEMESTER%206/PSS/simple-lms/docker-compose.yml)
 
-Project ini dibuat untuk tujuan pembelajaran dan demonstrasi konsep Django ORM, khususnya:
+## Notes
 
-* Relasi database
-* Optimasi query
-* Praktik best practices Django
-
----
+- The active Django project used by Docker is the one under `code/`.
+- The API documentation is served by Django Ninja at `http://localhost:8000/api/v1/docs`.
+- There is currently no fixture file committed in `code/fixtures/`.

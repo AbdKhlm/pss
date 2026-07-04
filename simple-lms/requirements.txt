@@ -4,3 +4,4 @@ gunicorn
 python-dotenv
 whitenoise
 pillow
+django-ninja>=1.1
