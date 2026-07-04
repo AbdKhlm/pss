@@ -1,12 +1,9 @@
 from typing import List, Optional
 from ninja import NinjaAPI, Query
 from ninja.errors import HttpError
-from ninja_extra import NinjaExtraAPI, api_controller, route
-from ninja_jwt.controller import NinjaJWTDefaultController
-from ninja_jwt.authentication import JWTAuth
-from django.db import models
+from ninja_simple_jwt.auth.views.api import mobile_auth_router
+from ninja_simple_jwt.auth.ninja_auth import HttpJwtAuth
 from django.shortcuts import get_object_or_404
-from django.contrib.auth import get_user_model
 from courses.models import Course, Lesson, User, Category, Enrollment, Progress
 from core.schemas import (
     CourseIn, CourseOut, DetailCourseOut,
@@ -17,41 +14,50 @@ from core.schemas import (
 from core.utils import is_admin, is_instructor, is_student
 
 
-api = NinjaExtraAPI(
-    title="Simple LMS API",
-    version="1.0",
-    description="REST API for Simple LMS",
-)
-api.register_controllers(NinjaJWTDefaultController)
+# Inisialisasi API
+api = NinjaAPI(title="Simple LMS API", version="1.0", description="REST API for Simple LMS")
+
+# Register auth router dari ninja-simple-jwt
+# Ini menyediakan endpoint /auth/sign-in dan /auth/token-refresh
+api.add_router("/auth/", mobile_auth_router)
+
+# Inisialisasi JWT auth handler
+# Digunakan sebagai parameter auth= pada endpoint yang butuh authentication
+apiAuth = HttpJwtAuth()
 
 
 # ======================
-# AUTH ENDPOINTS
+# AUTH ENDPOINTS (Registration, Me, Update)
 # ======================
-@api.post("/auth/register", response=UserOut, tags=["Authentication"])
+@api.post('/auth/register', response=UserOut, tags=["Authentication"])
 def register(request, data: UserRegisterIn):
-    User = get_user_model()
+    # Cek apakah username sudah digunakan
     if User.objects.filter(username=data.username).exists():
-        raise HttpError(400, "Username already exists")
+        raise HttpError(400, "Username sudah digunakan")
+    
+    # Cek apakah email sudah digunakan
     if User.objects.filter(email=data.email).exists():
-        raise HttpError(400, "Email already exists")
-    user = User.objects.create_user(
+        raise HttpError(400, "Email sudah digunakan")
+    
+    # Buat user baru
+    # create_user() otomatis melakukan hashing pada password
+    new_user = User.objects.create_user(
         username=data.username,
         email=data.email,
         password=data.password,
         first_name=data.first_name,
         last_name=data.last_name,
-        role=data.role,
+        role=data.role
     )
-    return user
+    return new_user
 
 
-@api.get("/auth/me", response=UserOut, auth=JWTAuth(), tags=["Authentication"])
+@api.get('/auth/me', response=UserOut, auth=apiAuth, tags=["Authentication"])
 def get_current_user(request):
     return request.user
 
 
-@api.put("/auth/me", response=UserOut, auth=JWTAuth(), tags=["Authentication"])
+@api.put('/auth/me', response=UserOut, auth=apiAuth, tags=["Authentication"])
 def update_profile(request, data: UserUpdateIn):
     user = request.user
     for attr, value in data.dict(exclude_unset=True).items():
@@ -61,9 +67,9 @@ def update_profile(request, data: UserUpdateIn):
 
 
 # ======================
-# COURSES ENDPOINTS (PUBLIC)
+# COURSES ENDPOINTS (Public)
 # ======================
-@api.get("/courses", response=List[CourseOut], tags=["Courses"])
+@api.get('/courses', response=List[CourseOut], tags=["Courses"])
 def list_courses(
     request,
     search: Optional[str] = None,
@@ -76,10 +82,13 @@ def list_courses(
         courses = courses.filter(name__icontains=search)
     if category_id:
         courses = courses.filter(category_id=category_id)
+    # Fix: Assign teacher = instructor for CourseOut
+    for course in courses:
+        course.teacher = course.instructor
     return courses[offset:offset+limit]
 
 
-@api.get("/courses/{course_id}", response=DetailCourseOut, tags=["Courses"])
+@api.get('/courses/{course_id}', response=DetailCourseOut, tags=["Courses"])
 def get_course(request, course_id: int):
     course = get_object_or_404(Course, id=course_id)
     course.teacher = course.instructor
@@ -91,9 +100,9 @@ def get_course(request, course_id: int):
 
 
 # ======================
-# COURSES ENDPOINTS (PROTECTED)
+# COURSES ENDPOINTS (Protected)
 # ======================
-@api.post("/courses", response={201: CourseOut}, auth=JWTAuth(), tags=["Courses"])
+@api.post('/courses', response={201: CourseOut}, auth=apiAuth, tags=["Courses"])
 @is_instructor
 def create_course(request, data: CourseIn):
     category = None
@@ -110,7 +119,7 @@ def create_course(request, data: CourseIn):
     return 201, course
 
 
-@api.patch("/courses/{course_id}", response=CourseOut, auth=JWTAuth(), tags=["Courses"])
+@api.patch('/courses/{course_id}', response=CourseOut, auth=apiAuth, tags=["Courses"])
 def update_course(request, course_id: int, data: CourseIn):
     course = get_object_or_404(Course, id=course_id)
     if request.user.role != "admin" and course.instructor != request.user:
@@ -126,7 +135,7 @@ def update_course(request, course_id: int, data: CourseIn):
     return course
 
 
-@api.delete("/courses/{course_id}", response={204: None}, auth=JWTAuth(), tags=["Courses"])
+@api.delete('/courses/{course_id}', response={204: None}, auth=apiAuth, tags=["Courses"])
 @is_admin
 def delete_course(request, course_id: int):
     course = get_object_or_404(Course, id=course_id)
@@ -137,7 +146,7 @@ def delete_course(request, course_id: int):
 # ======================
 # ENROLLMENTS ENDPOINTS
 # ======================
-@api.post("/enrollments", response={201: EnrollmentOut}, auth=JWTAuth(), tags=["Enrollments"])
+@api.post('/enrollments', response={201: EnrollmentOut}, auth=apiAuth, tags=["Enrollments"])
 @is_student
 def enroll(request, data: EnrollmentIn):
     course = get_object_or_404(Course, id=data.course_id)
@@ -150,14 +159,14 @@ def enroll(request, data: EnrollmentIn):
     return 201, enrollment
 
 
-@api.get("/enrollments/my-courses", response=List[EnrollmentOut], auth=JWTAuth(), tags=["Enrollments"])
+@api.get('/enrollments/my-courses', response=List[EnrollmentOut], auth=apiAuth, tags=["Enrollments"])
 @is_student
 def my_enrollments(request):
     enrollments = Enrollment.objects.filter(student=request.user).select_related("course", "course__instructor")
     return enrollments
 
 
-@api.post("/enrollments/{enrollment_id}/progress", response=MessageOut, auth=JWTAuth(), tags=["Enrollments"])
+@api.post('/enrollments/{enrollment_id}/progress', response=MessageOut, auth=apiAuth, tags=["Enrollments"])
 @is_student
 def mark_lesson_complete(request, enrollment_id: int, data: ProgressIn):
     enrollment = get_object_or_404(Enrollment, id=enrollment_id, student=request.user)

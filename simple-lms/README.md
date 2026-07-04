@@ -1,6 +1,6 @@
 # Simple LMS
 
-Simple Learning Management System built with Django, PostgreSQL, Docker, Django Admin, and Django Ninja (with JWT Authentication).
+Simple Learning Management System built with Django, PostgreSQL, Docker, Django Admin, and Django Ninja (with JWT Authentication via django-ninja-simple-jwt).
 
 This project demonstrates:
 
@@ -19,7 +19,7 @@ This project demonstrates:
 - Optimized queryset helpers for listing and dashboard use cases
 - Django Admin configuration for core models
 - Complete REST API under `/api/`
-- JWT Authentication using `django-ninja-jwt`
+- JWT Authentication using `django-ninja-simple-jwt` (RSA-signed tokens)
 - Role-based Access Control (RBAC) with decorators
 - Automatic API documentation with Swagger UI
 - Docker-based local development setup
@@ -29,7 +29,7 @@ This project demonstrates:
 - Django
 - PostgreSQL
 - Django Ninja
-- Django Ninja JWT (JWT Auth)
+- Django Ninja Simple JWT (JWT Auth, RSA-signed)
 - Gunicorn
 - WhiteNoise
 - Docker / Docker Compose
@@ -131,8 +131,8 @@ The API is registered in [code/config/urls.py](file:///E:/SEMESTER%206/PSS/simpl
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | POST | /api/auth/register | Register new user |
-| POST | /api/token/pair | Login (get access + refresh JWT tokens) |
-| POST | /api/token/refresh | Refresh access token |
+| POST | /api/auth/sign-in | Login (get access + refresh JWT tokens) |
+| POST | /api/auth/token-refresh | Refresh access token |
 | GET | /api/auth/me | Get current user (requires JWT) |
 | PUT | /api/auth/me | Update current user profile (requires JWT) |
 
@@ -182,7 +182,7 @@ Content-Type: application/json
 #### Login (get JWT tokens)
 
 ```http
-POST /api/token/pair
+POST /api/auth/sign-in
 Content-Type: application/json
 ```
 
