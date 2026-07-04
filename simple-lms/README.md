@@ -1,6 +1,6 @@
 # Simple LMS
 
-Simple Learning Management System built with Django, PostgreSQL, Docker, Django Admin, and Django Ninja.
+Simple Learning Management System built with Django, PostgreSQL, Docker, Django Admin, and Django Ninja (with JWT Authentication).
 
 This project demonstrates:
 
@@ -8,7 +8,7 @@ This project demonstrates:
 - custom user roles (`admin`, `instructor`, `student`)
 - course, lesson, enrollment, and progress management
 - query optimization with `select_related`, `prefetch_related`, and annotations
-- basic REST API implementation with Django Ninja
+- complete REST API with JWT Authentication and role-based authorization using Django Ninja
 
 ## Features
 
@@ -18,7 +18,10 @@ This project demonstrates:
 - Enrollment and lesson progress tracking
 - Optimized queryset helpers for listing and dashboard use cases
 - Django Admin configuration for core models
-- Basic REST API under `/api/v1/`
+- Complete REST API under `/api/`
+- JWT Authentication using `django-ninja-jwt`
+- Role-based Access Control (RBAC) with decorators
+- Automatic API documentation with Swagger UI
 - Docker-based local development setup
 
 ## Tech Stack
@@ -26,6 +29,7 @@ This project demonstrates:
 - Django
 - PostgreSQL
 - Django Ninja
+- Django Ninja JWT (JWT Auth)
 - Gunicorn
 - WhiteNoise
 - Docker / Docker Compose
@@ -38,7 +42,6 @@ simple-lms/
 ├── Dockerfile
 ├── requirements.txt
 ├── README.md
-├── manage.py
 └── code/
     ├── manage.py
     ├── config/
@@ -46,8 +49,9 @@ simple-lms/
     │   ├── urls.py
     │   └── wsgi.py
     ├── core/
-    │   ├── apiv1.py
-    │   └── schemas.py
+    │   ├── apiv1.py        # API routes with JWT auth and RBAC
+    │   ├── schemas.py      # Pydantic schemas for request/response
+    │   └── utils.py        # Role decorators (@is_admin, @is_instructor, @is_student)
     ├── courses/
     │   ├── admin.py
     │   ├── migrations/
@@ -87,7 +91,7 @@ simple-lms/
 ### 1. Start with Docker
 
 ```bash
-docker-compose up --build
+docker-compose up --build -d
 ```
 
 The `web` service automatically runs migrations and `collectstatic` before starting Gunicorn.
@@ -96,7 +100,7 @@ The `web` service automatically runs migrations and `collectstatic` before start
 
 - Home: `http://localhost:8000/`
 - Django Admin: `http://localhost:8000/admin`
-- API docs: `http://localhost:8000/api/v1/docs`
+- API docs (Swagger UI): `http://localhost:8000/api/docs`
 
 ### 3. Create a superuser
 
@@ -117,28 +121,87 @@ The API is registered in [code/config/urls.py](file:///E:/SEMESTER%206/PSS/simpl
 ### Base path
 
 ```text
-/api/v1/
+/api/
 ```
 
 ### Available endpoints
 
-- `GET /api/v1/courses/`
-- `GET /api/v1/courses/{course_id}/`
-- `POST /api/v1/courses/`
-- `PUT /api/v1/courses/{course_id}/`
-- `DELETE /api/v1/courses/{course_id}/`
+#### Authentication
 
-### Example request and response
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| POST | /api/auth/register | Register new user |
+| POST | /api/token/pair | Login (get access + refresh JWT tokens) |
+| POST | /api/token/refresh | Refresh access token |
+| GET | /api/auth/me | Get current user (requires JWT) |
+| PUT | /api/auth/me | Update current user profile (requires JWT) |
 
-#### Get course detail
+#### Courses (Public)
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | /api/courses | List courses with optional search/filter |
+| GET | /api/courses/{id} | Get course detail with contents |
+
+#### Courses (Protected)
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| POST | /api/courses | Create course (requires `instructor` role) |
+| PATCH | /api/courses/{id} | Update course (requires `instructor` owner or `admin`) |
+| DELETE | /api/courses/{id} | Delete course (requires `admin` role) |
+
+#### Enrollments (Protected)
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| POST | /api/enrollments | Enroll to course (requires `student` role) |
+| GET | /api/enrollments/my-courses | Get my enrolled courses (requires `student` role) |
+| POST | /api/enrollments/{id}/progress | Mark lesson complete (requires `student` role) |
+
+### Example requests and responses
+
+#### Register user
 
 ```http
-GET /api/v1/courses/2/
+POST /api/auth/register
+Content-Type: application/json
 ```
 
 ```json
 {
-  "id": 2,
+  "username": "student01",
+  "first_name": "Alice",
+  "last_name": "Johnson",
+  "email": "alice@example.com",
+  "password": "strongpassword123",
+  "role": "student"
+}
+```
+
+#### Login (get JWT tokens)
+
+```http
+POST /api/token/pair
+Content-Type: application/json
+```
+
+```json
+{
+  "username": "student01",
+  "password": "strongpassword123"
+}
+```
+
+#### Get course detail (public)
+
+```http
+GET /api/courses/1/
+```
+
+```json
+{
+  "id": 1,
   "name": "Pemrograman Web",
   "description": "Belajar membuat aplikasi web",
   "price": 50000,
@@ -153,25 +216,55 @@ GET /api/v1/courses/2/
   "created_at": "2026-07-04T04:19:08.971Z",
   "updated_at": "2026-07-04T04:19:08.971Z",
   "contents": [
-    { "id": 1, "name": "Pengenalan Django" },
-    { "id": 2, "name": "Instalasi dan Setup" },
-    { "id": 3, "name": "Model dan Migration" }
+    { "id": 1, "title": "Pengenalan Django" },
+    { "id": 2, "title": "Instalasi dan Setup" },
+    { "id": 3, "title": "Model dan Migration" }
   ]
 }
 ```
 
-#### Create course
+#### Create course (protected: instructor)
 
 ```http
-POST /api/v1/courses/
+POST /api/courses/
 Content-Type: application/json
+Authorization: Bearer <access_token>
 ```
 
 ```json
 {
   "name": "Machine Learning",
   "description": "Belajar ML dengan Python",
-  "price": 75000
+  "price": 75000,
+  "category_id": 1
+}
+```
+
+#### Enroll to course (protected: student)
+
+```http
+POST /api/enrollments/
+Content-Type: application/json
+Authorization: Bearer <access_token>
+```
+
+```json
+{
+  "course_id": 1
+}
+```
+
+#### Mark lesson complete (protected: student)
+
+```http
+POST /api/enrollments/1/progress
+Content-Type: application/json
+Authorization: Bearer <access_token>
+```
+
+```json
+{
+  "lesson_id": 1
 }
 ```
 
@@ -203,11 +296,13 @@ Admin configuration is available in [code/courses/admin.py](file:///E:/SEMESTER%
 - Admin: [code/courses/admin.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/courses/admin.py)
 - API routes: [code/core/apiv1.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/apiv1.py)
 - API schemas: [code/core/schemas.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/schemas.py)
+- API decorators: [code/core/utils.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/utils.py)
 - Project URLs: [code/config/urls.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/config/urls.py)
+- Settings: [code/config/settings.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/config/settings.py)
 - Docker config: [docker-compose.yml](file:///E:/SEMESTER%206/PSS/simple-lms/docker-compose.yml)
 
 ## Notes
 
 - The active Django project used by Docker is the one under `code/`.
-- The API documentation is served by Django Ninja at `http://localhost:8000/api/v1/docs`.
+- The API documentation is served by Django Ninja at `http://localhost:8000/api/docs`.
 - There is currently no fixture file committed in `code/fixtures/`.

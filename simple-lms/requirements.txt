@@ -5,3 +5,5 @@ python-dotenv
 whitenoise
 pillow
 django-ninja>=1.1
+django-ninja-jwt>=5.3.1
+django-ninja-extra>=0.21.11

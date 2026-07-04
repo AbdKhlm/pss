@@ -25,5 +25,5 @@ from core.apiv1 import api
 urlpatterns = [
     path('', TemplateView.as_view(template_name='landing.html'), name='home'),
     path('admin/', admin.site.urls),
-    path('api/v1/', api.urls),
+    path('api/', api.urls),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

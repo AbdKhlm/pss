@@ -104,7 +104,7 @@ class Lesson(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.course.title} - {self.title}"
+        return f"{self.course.name} - {self.title}"
 
 
 # ======================
