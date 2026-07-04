@@ -6,3 +6,9 @@ whitenoise
 pillow
 django-ninja>=1.1
 django-ninja-simple-jwt>=0.8.1
+redis>=5.0
+pymongo>=4.0
+celery>=5.4
+flower>=2.0
+amqp>=5.0
+django-cors-headers>=4.0
