@@ -1,0 +1,106 @@
+[
+  {
+    "model": "courses.user",
+    "pk": 1,
+    "fields": {
+      "password": "pbkdf2_sha256$1000000$dummy$dummy",
+      "last_login": null,
+      "is_superuser": false,
+      "username": "fixture_instructor",
+      "first_name": "Fixture",
+      "last_name": "Instructor",
+      "email": "fixture.instructor@example.com",
+      "is_staff": true,
+      "is_active": true,
+      "date_joined": "2026-01-01T00:00:00Z",
+      "role": "instructor",
+      "groups": [],
+      "user_permissions": []
+    }
+  },
+  {
+    "model": "courses.user",
+    "pk": 2,
+    "fields": {
+      "password": "pbkdf2_sha256$1000000$dummy$dummy",
+      "last_login": null,
+      "is_superuser": false,
+      "username": "fixture_student",
+      "first_name": "Fixture",
+      "last_name": "Student",
+      "email": "fixture.student@example.com",
+      "is_staff": false,
+      "is_active": true,
+      "date_joined": "2026-01-01T00:00:00Z",
+      "role": "student",
+      "groups": [],
+      "user_permissions": []
+    }
+  },
+  {
+    "model": "courses.category",
+    "pk": 1,
+    "fields": {
+      "name": "Programming",
+      "parent": null
+    }
+  },
+  {
+    "model": "courses.course",
+    "pk": 1,
+    "fields": {
+      "name": "Fixture Django Course",
+      "description": "Fixture course for automated testing",
+      "price": 75000,
+      "image": "",
+      "level": "beginner",
+      "status": "published",
+      "instructor": 1,
+      "category": 1,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "courses.coursesection",
+    "pk": 1,
+    "fields": {
+      "course": 1,
+      "title": "Getting Started",
+      "description": "Fixture section",
+      "order": 1,
+      "created_at": "2026-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "courses.lesson",
+    "pk": 1,
+    "fields": {
+      "course": 1,
+      "section": 1,
+      "title": "Fixture Intro",
+      "content": "Fixture content",
+      "order": 1
+    }
+  },
+  {
+    "model": "courses.lesson",
+    "pk": 2,
+    "fields": {
+      "course": 1,
+      "section": 1,
+      "title": "Fixture ORM",
+      "content": "Fixture content",
+      "order": 2
+    }
+  },
+  {
+    "model": "courses.enrollment",
+    "pk": 1,
+    "fields": {
+      "student": 2,
+      "course": 1,
+      "enrolled_at": "2026-01-01T00:00:00Z"
+    }
+  }
+]

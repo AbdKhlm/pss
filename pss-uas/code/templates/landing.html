@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple LMS | Platform Belajar Modern</title>
+    <meta name="description" content="Simple LMS - Solusi pembelajaran digital terintegrasi.">
+    <!-- Google Fonts + Font Awesome -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <div class="container nav-container">
+            <div class="logo">
+                <div class="logo-icon">
+                    <i class="fas fa-graduation-cap"></i>
+                </div>
+                <span class="logo-text">Simple<span class="logo-highlight">LMS</span></span>
+            </div>
+            <div class="nav-menu">
+                <a href="#" class="nav-link">Beranda</a>
+                <a href="#" class="nav-link">Kursus</a>
+                <a href="#" class="nav-link">Fitur</a>
+                <a href="#" class="nav-link">Tentang</a>
+            </div>
+            <div class="nav-actions">
+                <a href="#" class="btn-outline">Masuk</a>
+                <a href="#" class="btn-primary">Daftar Gratis</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- HERO SECTION - WELCOME MESSAGE UTAMA -->
+    <section class="hero">
+        <div class="container hero-container">
+            <div class="hero-badge">
+                <i class="fas fa-chalkboard-user"></i> Platform LMS #1 di Indonesia
+            </div>
+            <h1 class="hero-title">
+                Welcome To <span class="gradient-text">Simple LMS</span>
+            </h1>
+            <p class="hero-subtitle">
+                Kelola pembelajaran, pantau progres siswa, dan ciptakan pengalaman belajar digital yang tak terlupakan.
+            </p>
+            <div class="hero-buttons">
+                <a href="#" class="btn-primary btn-large">
+                    <i class="fas fa-rocket"></i> Mulai Sekarang
+                </a>
+                <a href="#" class="btn-outline btn-large">
+                    <i class="fas fa-play"></i> Demo Video
+                </a>
+            </div>
+            <div class="hero-stats">
+                <div class="stat">
+                    <span class="stat-number">2.4k+</span>
+                    <span class="stat-label">Siswa Aktif</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">180+</span>
+                    <span class="stat-label">Kursus Premium</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">45+</span>
+                    <span class="stat-label">Instruktur Ahli</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">98%</span>
+                    <span class="stat-label">Kepuasan</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FITUR UNGGULAN -->
+    <section class="features">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Keunggulan</span>
+                <h2>Mengapa Memilih Simple LMS?</h2>
+                <p>Platform lengkap untuk institusi pendidikan modern</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+                    <h3>Cloud Based</h3>
+                    <p>Akses kapan saja, di mana saja tanpa instalasi rumit.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-chart-line"></i></div>
+                    <h3>Analitik Real-time</h3>
+                    <p>Pantau perkembangan siswa dengan dashboard interaktif.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-certificate"></i></div>
+                    <h3>Sertifikat Resmi</h3>
+                    <p>Terbitkan sertifikat terverifikasi untuk setiap penyelesaian kursus.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-headset"></i></div>
+                    <h3>Dukungan 24/7</h3>
+                    <p>Tim support siap membantu kapanpun Anda butuhkan.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- KURSUS POPULER -->
+    <section class="courses">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Katalog</span>
+                <h2>Kursus Populer</h2>
+                <p>Pilih kursus terbaik dan tingkatkan keterampilan Anda</p>
+            </div>
+            <div class="courses-grid">
+                <div class="course-card">
+                    <div class="course-img"><i class="fab fa-js"></i></div>
+                    <div class="course-info">
+                        <h3>Fullstack JavaScript</h3>
+                        <p>React, Node.js, Express, MongoDB</p>
+                        <div class="course-meta">
+                            <span class="price">Rp 499k</span>
+                            <button class="btn-enroll">Enroll <i class="fas fa-arrow-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="course-card">
+                    <div class="course-img"><i class="fas fa-database"></i></div>
+                    <div class="course-info">
+                        <h3>Data Science & AI</h3>
+                        <p>Python, Pandas, Machine Learning</p>
+                        <div class="course-meta">
+                            <span class="price">Rp 650k</span>
+                            <button class="btn-enroll">Enroll <i class="fas fa-arrow-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="course-card">
+                    <div class="course-img"><i class="fas fa-paintbrush"></i></div>
+                    <div class="course-info">
+                        <h3>UI/UX Design</h3>
+                        <p>Figma, Prototyping, Design Thinking</p>
+                        <div class="course-meta">
+                            <span class="price">Rp 399k</span>
+                            <button class="btn-enroll">Enroll <i class="fas fa-arrow-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="course-card">
+                    <div class="course-img"><i class="fab fa-docker"></i></div>
+                    <div class="course-info">
+                        <h3>DevOps & Cloud</h3>
+                        <p>Docker, Kubernetes, AWS</p>
+                        <div class="course-meta">
+                            <span class="price">Rp 599k</span>
+                            <button class="btn-enroll">Enroll <i class="fas fa-arrow-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta">
+        <div class="container cta-container">
+            <h2>Siap Memulai Perjalanan Belajar Anda?</h2>
+            <p>Bergabunglah dengan ribuan siswa yang telah meningkatkan karir mereka bersama Simple LMS.</p>
+            <a href="#" class="btn-primary btn-large">Daftar Sekarang →</a>
+        </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <div class="logo">
+                        <div class="logo-icon"><i class="fas fa-graduation-cap"></i></div>
+                        <span>SimpleLMS</span>
+                    </div>
+                    <p>Membangun generasi unggul melalui teknologi pendidikan.</p>
+                </div>
+                <div class="footer-links">
+                    <div>
+                        <h4>Perusahaan</h4>
+                        <a href="#">Tentang</a>
+                        <a href="#">Karir</a>
+                        <a href="#">Blog</a>
+                    </div>
+                    <div>
+                        <h4>Dukungan</h4>
+                        <a href="#">Pusat Bantuan</a>
+                        <a href="#">Kebijakan Privasi</a>
+                        <a href="#">Syarat & Ketentuan</a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 Simple LMS. All rights reserved. | Localhost:8000 - Django + Docker</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Interaksi sederhana untuk tombol enroll
+        document.querySelectorAll('.btn-enroll').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                alert('✨ Fitur pendaftaran akan segera hadir. Login untuk mencoba demo!');
+            });
+        });
+    </script>
+</body>
+</html>
