@@ -10,6 +10,7 @@ redis>=5.0
 requests>=2.32
 pymongo>=4.0
 celery>=5.4
+kombu>=5.4
 flower>=2.0
 amqp>=5.0
 django-cors-headers>=4.0

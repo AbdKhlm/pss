@@ -1,4 +1,5 @@
 import json
+from typing import Any, cast
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
@@ -21,6 +22,7 @@ from core.mongo import (
     update_activity_logs,
 )
 from core.tasks import (
+    add_numbers,
     export_course_report,
     generate_certificate,
     send_enrollment_email,
@@ -132,8 +134,9 @@ class MongoHelperTests(TestCase):
             result = get_learning_analytics(course_id=1)
 
         pipeline = activity_collection.aggregate.call_args.args[0]
+        first_result = cast(dict[str, Any], result[0])
         self.assertEqual(pipeline[0], {"$match": {"course_id": 1}})
-        self.assertEqual(result[0]["total_actions"], 4)
+        self.assertEqual(first_result["total_actions"], 4)
 
     def test_get_mongo_db_uses_configured_connection_settings(self):
         fake_client = MagicMock()
@@ -158,7 +161,8 @@ class MongoHelperTests(TestCase):
             logs = list_activity_logs(filters={"action": "COURSE_VIEW"}, limit=5, skip=10)
 
         activity_collection.find.assert_called_once_with({"action": "COURSE_VIEW"})
-        self.assertEqual(logs[0]["action"], "COURSE_VIEW")
+        first_log = cast(dict[str, Any], logs[0])
+        self.assertEqual(first_log["action"], "COURSE_VIEW")
 
     def test_update_activity_logs_uses_set_operator(self):
         db, activity_collection, _ = self._mock_db()
@@ -228,6 +232,12 @@ class MongoHelperTests(TestCase):
 
 
 class CeleryTaskTests(TestCase):
+    def test_add_numbers_returns_sum_payload(self):
+        result = add_numbers(4, 6)
+
+        self.assertEqual(result["operation"], "add_numbers")
+        self.assertEqual(result["result"], 10)
+
     @patch("core.tasks.send_mail")
     def test_send_enrollment_email_uses_django_mail(self, mocked_send_mail):
         send_enrollment_email("student@example.com", "Django API")
@@ -417,6 +427,32 @@ class ApiIntegrationTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["synced_count"], 2)
+
+    @patch("core.apiv1.log_activity")
+    def test_authenticated_user_can_queue_demo_add_task(self, mocked_log_activity):
+        headers = self.auth_header(self.student.username, self.student_password)
+
+        response = self.client.post(
+            "/api/tasks/demo-add",
+            data=json.dumps({"x": 4, "y": 5, "countdown": 0}),
+            content_type="application/json",
+            **headers,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["message"], "Task queued successfully")
+        self.assertTrue(response.json()["task_id"])
+        mocked_log_activity.assert_called_once()
+
+    def test_authenticated_user_can_check_task_status(self):
+        headers = self.auth_header(self.student.username, self.student_password)
+        queued_task = add_numbers.delay(7, 8)
+
+        response = self.client.get(f"/api/tasks/{queued_task.id}", **headers)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["status"], "SUCCESS")
+        self.assertEqual(response.json()["result"]["result"], 15)
 
     @patch("core.apiv1.log_activity")
     def test_auth_me_returns_authenticated_user(self, mocked_log_activity):

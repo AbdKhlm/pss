@@ -1,4 +1,5 @@
 import csv
+import time
 from io import StringIO
 from celery import shared_task
 from django.core.mail import send_mail
@@ -7,7 +8,19 @@ from courses.models import Course
 
 
 @shared_task
+def add_numbers(x, y):
+    time.sleep(5)
+    return {
+        "operation": "add_numbers",
+        "x": x,
+        "y": y,
+        "result": x + y,
+    }
+
+
+@shared_task
 def send_enrollment_email(student_email, course_name):
+    time.sleep(3)
     subject = f"Enrollment Confirmation for {course_name}"
     message = f"You have successfully enrolled in {course_name}!"
     send_mail(
@@ -17,10 +30,12 @@ def send_enrollment_email(student_email, course_name):
         recipient_list=[student_email],
         fail_silently=False,
     )
+    return {"status": "sent", "recipient": student_email, "course_name": course_name}
 
 
 @shared_task
 def generate_certificate(student_id, course_id):
+    time.sleep(2)
     print(f"Generating certificate for student {student_id} on course {course_id}")
     # In real app, you'd generate a PDF here
     return {"status": "done", "student_id": student_id, "course_id": course_id}

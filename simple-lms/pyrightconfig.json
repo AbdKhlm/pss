@@ -1,0 +1,22 @@
+{
+  "include": [
+    "code"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "stubPath": "typings",
+  "typeCheckingMode": "basic",
+  "reportMissingModuleSource": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportArgumentType": "none",
+  "reportOperatorIssue": "none",
+  "reportIndexIssue": "none",
+  "executionEnvironments": [
+    {
+      "root": "code",
+      "extraPaths": [
+        "code"
+      ]
+    }
+  ]
+}

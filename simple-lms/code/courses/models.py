@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING, cast
+
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
@@ -75,7 +77,10 @@ class Course(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    objects = CourseQuerySet.as_manager()
+    if TYPE_CHECKING:
+        objects: CourseQuerySet
+    else:
+        objects = cast(CourseQuerySet, CourseQuerySet.as_manager())  # pyright: ignore[reportCallIssue]
 
     def __str__(self):
         return self.name
@@ -147,7 +152,10 @@ class Enrollment(models.Model):
 
     enrolled_at = models.DateTimeField(auto_now_add=True)
 
-    objects = EnrollmentQuerySet.as_manager()
+    if TYPE_CHECKING:
+        objects: EnrollmentQuerySet
+    else:
+        objects = cast(EnrollmentQuerySet, EnrollmentQuerySet.as_manager())  # pyright: ignore[reportCallIssue]
 
     class Meta:
         constraints = [

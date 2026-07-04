@@ -1,0 +1,354 @@
+from datetime import datetime, timedelta
+from typing import Any
+
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from django.urls import reverse
+from freezegun import freeze_time
+
+from ninja_simple_jwt.jwt.key_creation import make_and_save_key_pair
+from ninja_simple_jwt.jwt.token_operations import get_refresh_token_for_user
+from ninja_simple_jwt.settings import DEFAULTS
+
+
+class TestAuthEndPoints(TestCase):
+    @staticmethod
+    def merge_settings(**kwargs: Any) -> dict:
+        return {**DEFAULTS, **kwargs}
+
+    def setUp(self) -> None:
+        make_and_save_key_pair()
+
+
+class TestMobileSignIn(TestAuthEndPoints):
+    def test_user_can_sign_in(self) -> None:
+        username = "user"
+        password = "password"
+        user = get_user_model().objects.create_user(username=username, password=password)
+
+        response = self.client.post(
+            reverse("api-1.0.0:mobile_signin"),
+            data={"username": username, "password": password},
+            content_type="application/json",
+        )
+
+        self.assertEqual(200, response.status_code, "Correct status code.")
+        self.assertIn("refresh", response.json(), "Response data contains refresh token.")
+        self.assertIn("access", response.json(), "Response data contains access token.")
+
+        user.refresh_from_db()
+        self.assertIsNotNone(user.last_login, "User.last_login updated.")
+
+    def test_inactive_user_cannot_sign_in(self) -> None:
+        username = "user"
+        password = "password"
+        get_user_model().objects.create_user(username=username, password=password, is_active=False)
+
+        response = self.client.post(
+            reverse("api-1.0.0:mobile_signin"),
+            data={"username": username, "password": password},
+            content_type="application/json",
+        )
+
+        self.assertEqual(401, response.status_code, "Inactive user cannot sign in.")
+
+    def test_invalid_credentials_returns_401(self) -> None:
+        username = "user"
+        password = "password"
+        get_user_model().objects.create_user(username=username, password=password)
+
+        response = self.client.post(
+            reverse("api-1.0.0:mobile_signin"),
+            data={"username": username, "password": "wrong_password"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(401, response.status_code, "Invalid credentials return 401.")
+
+    def test_missing_username_returns_422(self) -> None:
+        response = self.client.post(
+            reverse("api-1.0.0:mobile_signin"),
+            data={"password": "password"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(422, response.status_code, "Missing username returns 422.")
+
+    def test_missing_password_returns_422(self) -> None:
+        response = self.client.post(
+            reverse("api-1.0.0:mobile_signin"),
+            data={"username": "user"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(422, response.status_code, "Missing password returns 422.")
+
+
+class TestMobileRefresh(TestAuthEndPoints):
+    def test_user_can_refresh_token(self) -> None:
+        user = get_user_model().objects.create_user(username="user")
+
+        with self.settings(
+            NINJA_SIMPLE_JWT=self.merge_settings(
+                JWT_REFRESH_TOKEN_LIFETIME=timedelta(days=31),
+                JWT_ACCESS_TOKEN_LIFETIME=timedelta(minutes=5),
+            )
+        ):
+            with freeze_time("2024-01-11 12:00:01"):
+                refresh_token, _ = get_refresh_token_for_user(user)
+                response = self.client.post(
+                    reverse("api-1.0.0:mobile_token_refresh"),
+                    data={"refresh": refresh_token},
+                    content_type="application/json",
+                )
+
+        self.assertEqual(200, response.status_code, "Correct status code.")
+        self.assertIn("access", response.json(), "Response data contains access token.")
+        self.assertNotIn("refresh", response.json(), "Response data should not contain refresh token.")
+
+    def test_invalid_refresh_token_returns_401(self) -> None:
+        response = self.client.post(
+            reverse("api-1.0.0:mobile_token_refresh"),
+            data={"refresh": "invalid_token"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(401, response.status_code, "Invalid refresh token returns 401.")
+
+    def test_expired_refresh_token_returns_401(self) -> None:
+        user = get_user_model().objects.create_user(username="user")
+
+        with self.settings(
+            NINJA_SIMPLE_JWT=self.merge_settings(
+                JWT_REFRESH_TOKEN_LIFETIME=timedelta(days=31),
+                JWT_ACCESS_TOKEN_LIFETIME=timedelta(minutes=5),
+            )
+        ):
+            # Create token in the past
+            with freeze_time("2024-01-11 12:00:01"):
+                refresh_token, _ = get_refresh_token_for_user(user)
+
+            # Try to use it after expiration
+            with freeze_time("2024-03-11 12:00:01"):
+                response = self.client.post(
+                    reverse("api-1.0.0:mobile_token_refresh"),
+                    data={"refresh": refresh_token},
+                    content_type="application/json",
+                )
+
+        self.assertEqual(401, response.status_code, "Expired refresh token returns 401.")
+
+    def test_missing_refresh_token_returns_422(self) -> None:
+        response = self.client.post(
+            reverse("api-1.0.0:mobile_token_refresh"),
+            data={},
+            content_type="application/json",
+        )
+
+        self.assertEqual(422, response.status_code, "Missing refresh token returns 422.")
+
+
+class TestWebSignIn(TestAuthEndPoints):
+    def test_user_can_sign_in(self) -> None:
+        username = "user"
+        password = "password"
+        user = get_user_model().objects.create_user(username=username, password=password)
+
+        with self.settings(
+            NINJA_SIMPLE_JWT=self.merge_settings(
+                JWT_REFRESH_TOKEN_LIFETIME=timedelta(days=31),
+                JWT_ACCESS_TOKEN_LIFETIME=timedelta(minutes=5),
+                WEB_REFRESH_COOKIE_PATH="/tests/refresh_api_path",
+            )
+        ):
+            with freeze_time("2024-01-11 12:00:01"):
+                response = self.client.post(
+                    reverse("api-1.0.0:web_signin"),
+                    data={"username": username, "password": password},
+                    content_type="application/json",
+                )
+
+        self.assertEqual(200, response.status_code, "Correct status code.")
+        self.assertNotIn("refresh", response.json(), "Response body should not contain refresh token.")
+        self.assertIn("refresh", response.cookies, "Response header Set-Cookie has refresh token.")
+        self.assertIn("access", response.json(), "Response body contains access token.")
+
+        refresh_token_cookie = response.cookies.get("refresh")
+        self.assertTrue(refresh_token_cookie["httponly"], "Refresh token cookie is HttpOnly.")
+        self.assertEqual(
+            "/tests/refresh_api_path", refresh_token_cookie["path"], "Refresh token cookie has correct path."
+        )
+        cookie_expires = datetime.strptime(refresh_token_cookie["expires"], "%a, %d %b %Y %H:%M:%S %Z")
+        self.assertEqual(datetime(2024, 2, 11, 12, 0, 2), cookie_expires, "Refresh token cookies has correct expires.")
+
+        user.refresh_from_db()
+        self.assertIsNotNone(user.last_login, "User.last_login updated.")
+
+    def test_inactive_user_cannot_sign_in(self) -> None:
+        username = "user"
+        password = "password"
+        get_user_model().objects.create_user(username=username, password=password, is_active=False)
+
+        response = self.client.post(
+            reverse("api-1.0.0:web_signin"),
+            data={"username": username, "password": password},
+            content_type="application/json",
+        )
+
+        self.assertEqual(401, response.status_code, "Inactive user cannot sign in.")
+
+    def test_invalid_credentials_returns_401(self) -> None:
+        username = "user"
+        password = "password"
+        get_user_model().objects.create_user(username=username, password=password)
+
+        response = self.client.post(
+            reverse("api-1.0.0:web_signin"),
+            data={"username": username, "password": "wrong_password"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(401, response.status_code, "Invalid credentials return 401.")
+        self.assertNotIn("refresh", response.cookies, "No refresh cookie set on failed login.")
+
+
+class TestWebRefresh(TestAuthEndPoints):
+    def test_user_token_refresh_valid(self) -> None:
+        user = get_user_model().objects.create_user(username="user")
+
+        with self.settings(
+            NINJA_SIMPLE_JWT=self.merge_settings(
+                JWT_REFRESH_TOKEN_LIFETIME=timedelta(days=31),
+                JWT_ACCESS_TOKEN_LIFETIME=timedelta(minutes=5),
+                JWT_REFRESH_COOKIE_NAME="refresh-token",
+            )
+        ):
+            with freeze_time("2024-01-11 12:00:01"):
+                refresh_token, _ = get_refresh_token_for_user(user)
+
+                response = self.client.post(
+                    reverse("api-1.0.0:web_token_refresh"),
+                    content_type="application/json",
+                    HTTP_COOKIE=f"refresh-token={refresh_token}",
+                )
+
+        self.assertEqual(200, response.status_code, "Correct status code.")
+        self.assertIn("access", response.json(), "Response body has access token.")
+        self.assertNotIn("refresh", response.json(), "Response body should not have refresh token.")
+
+    def test_user_token_refresh_invalid(self) -> None:
+        with self.settings(
+            NINJA_SIMPLE_JWT=self.merge_settings(
+                JWT_REFRESH_TOKEN_LIFETIME=timedelta(days=31),
+                JWT_ACCESS_TOKEN_LIFETIME=timedelta(minutes=5),
+                JWT_REFRESH_COOKIE_NAME="refresh-token",
+            )
+        ):
+            with freeze_time("2024-01-11 12:00:01"):
+                response = self.client.post(
+                    reverse("api-1.0.0:web_token_refresh"),
+                    content_type="application/json",
+                    HTTP_COOKIE="refresh-token=bad_token",
+                )
+
+        self.assertEqual(401, response.status_code, "Correct status code.")
+        self.assertNotIn("access", response.json(), "Response body does not have access token.")
+        self.assertNotIn("refresh", response.json(), "Response body does not have refresh token.")
+
+    def test_missing_cookie_returns_401(self) -> None:
+        response = self.client.post(
+            reverse("api-1.0.0:web_token_refresh"),
+            content_type="application/json",
+        )
+
+        self.assertEqual(401, response.status_code, "Missing cookie returns 401.")
+
+    def test_expired_refresh_token_returns_401(self) -> None:
+        user = get_user_model().objects.create_user(username="user")
+
+        with self.settings(
+            NINJA_SIMPLE_JWT=self.merge_settings(
+                JWT_REFRESH_TOKEN_LIFETIME=timedelta(days=31),
+                JWT_ACCESS_TOKEN_LIFETIME=timedelta(minutes=5),
+                JWT_REFRESH_COOKIE_NAME="refresh-token",
+            )
+        ):
+            # Create token in the past
+            with freeze_time("2024-01-11 12:00:01"):
+                refresh_token, _ = get_refresh_token_for_user(user)
+
+            # Try to use it after expiration
+            with freeze_time("2024-03-11 12:00:01"):
+                response = self.client.post(
+                    reverse("api-1.0.0:web_token_refresh"),
+                    content_type="application/json",
+                    HTTP_COOKIE=f"refresh-token={refresh_token}",
+                )
+
+        self.assertEqual(401, response.status_code, "Expired refresh token returns 401.")
+
+
+class TestWebSignOut(TestAuthEndPoints):
+    def test_user_sign_out_with_valid_refresh_token(self) -> None:
+        user = get_user_model().objects.create_user(username="user")
+
+        with self.settings(
+            NINJA_SIMPLE_JWT=self.merge_settings(
+                JWT_REFRESH_COOKIE_NAME="refresh-token",
+                JWT_REFRESH_COOKIE_PATH="/tests/refresh_api_path",
+            )
+        ):
+            refresh_token, _ = get_refresh_token_for_user(user)
+            response = self.client.post(
+                reverse("api-1.0.0:web_sign_out"),
+                content_type="application/json",
+                HTTP_COOKIE=f"refresh-token={refresh_token}",
+            )
+
+        self.assertEqual(204, response.status_code, "Correct status code.")
+        self.assertIn("refresh-token", response.cookies, "Response header Set-Cookie has refresh token.")
+        self.assertEqual(
+            "",
+            response.cookies["refresh-token"].value,
+            "Refresh token cookie is deleted.",
+        )
+
+    def test_user_sign_out_with_invalid_refresh_token(self) -> None:
+        with self.settings(
+            NINJA_SIMPLE_JWT=self.merge_settings(
+                JWT_REFRESH_COOKIE_NAME="refresh-token",
+                JWT_REFRESH_COOKIE_PATH="/tests/refresh_api_path",
+            )
+        ):
+            response = self.client.post(
+                reverse("api-1.0.0:web_sign_out"),
+                content_type="application/json",
+                HTTP_COOKIE="refresh-token=bad_token",
+            )
+
+        self.assertEqual(401, response.status_code, "Correct status code.")
+        self.assertNotIn("refresh-token", response.cookies, "Response header Set-Cookie does not has refresh token.")
+
+    def test_user_sign_out_without_cookie_returns_401(self) -> None:
+        response = self.client.post(
+            reverse("api-1.0.0:web_sign_out"),
+            content_type="application/json",
+        )
+
+        self.assertEqual(401, response.status_code, "Missing cookie returns 401.")
+
+    def test_cookie_is_deleted_with_default_path(self) -> None:
+        """Test that cookie is deleted with the default path setting."""
+        user = get_user_model().objects.create_user(username="user")
+
+        refresh_token, _ = get_refresh_token_for_user(user)
+        response = self.client.post(
+            reverse("api-1.0.0:web_sign_out"),
+            content_type="application/json",
+            HTTP_COOKIE=f"refresh={refresh_token}",
+        )
+
+        self.assertEqual(204, response.status_code, "Correct status code.")
+        refresh_token_cookie = response.cookies.get("refresh")
+        self.assertIsNotNone(refresh_token_cookie, "Refresh cookie present in response.")
+        self.assertEqual("/api/auth/web", refresh_token_cookie["path"], "Cookie deleted with default path.")

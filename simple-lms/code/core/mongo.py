@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any, cast
 
 from bson import ObjectId
 from django.conf import settings
@@ -208,10 +209,13 @@ def build_learning_analytics_pipeline(course_id=None):
     return pipeline
 
 
-def aggregate_learning_analytics(course_id=None):
+def aggregate_learning_analytics(course_id=None) -> list[dict[str, Any]]:
     db = get_mongo_db()
     pipeline = build_learning_analytics_pipeline(course_id=course_id)
-    return [serialize_mongo_value(document) for document in db[ACTIVITY_LOGS_COLLECTION].aggregate(pipeline)]
+    return cast(
+        list[dict[str, Any]],
+        [serialize_mongo_value(document) for document in db[ACTIVITY_LOGS_COLLECTION].aggregate(pipeline)],
+    )
 
 
 def sync_learning_analytics(course_id=None):
@@ -233,7 +237,7 @@ def sync_learning_analytics(course_id=None):
     }
 
 
-def get_learning_analytics(course_id=None, refresh=False):
+def get_learning_analytics(course_id=None, refresh=False) -> list[dict[str, Any]]:
     db = get_mongo_db()
 
     if refresh:
@@ -245,6 +249,6 @@ def get_learning_analytics(course_id=None, refresh=False):
 
     analytics = list(db[LEARNING_ANALYTICS_COLLECTION].find(filters).sort("total_actions", DESCENDING))
     if analytics:
-        return [serialize_mongo_value(document) for document in analytics]
+        return cast(list[dict[str, Any]], [serialize_mongo_value(document) for document in analytics])
 
     return aggregate_learning_analytics(course_id=course_id)

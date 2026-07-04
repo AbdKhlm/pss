@@ -127,3 +127,23 @@ class LearningAnalyticsOut(Schema):
 class MongoSyncOut(Schema):
     message: str
     synced_count: int
+
+
+class TaskDemoIn(Schema):
+    x: int
+    y: int
+    countdown: int = 0
+
+
+class TaskQueuedOut(Schema):
+    message: str
+    task_id: str
+    queue: str
+
+
+class TaskResultOut(Schema):
+    task_id: str
+    status: str
+    ready: bool
+    successful: bool
+    result: Optional[dict | int | str | list] = None

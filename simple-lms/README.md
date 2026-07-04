@@ -14,9 +14,9 @@ Simple LMS is a Learning Management System built with Django, Django Ninja, Post
 - Redis-based caching for course list and course detail endpoints
 - Redis-backed request throttling for custom API endpoints in `core/apiv1.py`
 - MongoDB activity logging and persisted learning analytics
-- Celery tasks for email, certificates, report export, and scheduled statistics
+- Celery tasks for email, certificates, report export, scheduled statistics, and async demo jobs
 - RabbitMQ as Celery broker
-- Flower dashboard for Celery monitoring
+- Flower dashboard and RabbitMQ Management UI for task monitoring
 - Swagger UI documentation at `/api/docs`
 - Docker-based local development workflow
 
@@ -133,6 +133,10 @@ DEBUG=1
 SECRET_KEY=change-this-secret
 MONGODB_URI=mongodb://mongodb:27017/
 MONGODB_DB_NAME=simple_lms
+RABBITMQ_DEFAULT_USER=guest
+RABBITMQ_DEFAULT_PASS=guest
+CELERY_BROKER_URL=amqp://guest:guest@rabbitmq:5672//
+CELERY_RESULT_BACKEND=redis://redis:6379/2
 ```
 
 ### 2. Start all services with Docker
@@ -174,6 +178,7 @@ docker-compose exec web python manage.py test
 | Admin | http://localhost:8000/admin | Django admin |
 | API Docs | http://localhost:8000/api/docs | Swagger UI |
 | Flower | http://localhost:5555 | Celery monitoring |
+| RabbitMQ UI | http://localhost:15672 | RabbitMQ Management UI |
 
 ## Chapter 09 Coverage
 
@@ -374,6 +379,89 @@ db.activity_logs.countDocuments({ action: "COURSE_VIEW" })
 db.learning_analytics.find().sort({ total_actions: -1 })
 ```
 
+## Chapter 13 Coverage
+
+This project now exposes the full async processing stack described in the message broker module: RabbitMQ as broker, Celery workers for background execution, Redis DB 2 as result backend, Celery Beat for periodic jobs, Flower for task monitoring, and RabbitMQ Management UI for broker inspection.
+
+### Learning objectives coverage
+
+| Objective | Implementation |
+| --- | --- |
+| Synchronous vs asynchronous processing | Enrollment email, certificate generation, report export, and demo task execution are queued with Celery instead of blocking the request cycle |
+| Message broker and queue concepts | RabbitMQ service is configured in [docker-compose.yml](file:///E:/SEMESTER%206/PSS/simple-lms/docker-compose.yml) and used through `CELERY_BROKER_URL` |
+| RabbitMQ integration in Django | Celery broker URL is configured in [code/config/settings.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/config/settings.py) and loaded by [code/config/celery.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/config/celery.py) |
+| Celery background tasks | Implemented in [code/core/tasks.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/tasks.py) |
+| Periodic task with Celery Beat | `update_course_statistics` is scheduled every 5 minutes in Django settings |
+| Monitoring with Flower and RabbitMQ Management UI | Flower on `:5555` and RabbitMQ UI on `:15672` are available through Docker Compose |
+
+### Deliverables status
+
+| Deliverable | Status | Notes |
+| --- | --- | --- |
+| RabbitMQ broker service | Done | `rabbitmq:3-management-alpine` with AMQP and Management UI ports |
+| Celery worker | Done | `celery-worker` service |
+| Celery beat | Done | `celery-beat` service |
+| Redis result backend | Done | `CELERY_RESULT_BACKEND=redis://redis:6379/2` |
+| Background task implementation | Done | `add_numbers`, `send_enrollment_email`, `generate_certificate`, `update_course_statistics`, `export_course_report` |
+| Async task enqueue example | Done | `POST /api/tasks/demo-add` |
+| Task status/result check | Done | `GET /api/tasks/{task_id}` |
+| Flower monitoring | Done | `http://localhost:5555` |
+| RabbitMQ Management UI | Done | `http://localhost:15672` |
+
+### Async task demo
+
+#### Queue a demo task
+
+```bash
+curl -X POST http://localhost:8000/api/tasks/demo-add \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d "{\"x\": 4, \"y\": 5, \"countdown\": 0}"
+```
+
+Expected response:
+
+```json
+{
+  "message": "Task queued successfully",
+  "task_id": "celery-task-id",
+  "queue": "celery"
+}
+```
+
+#### Check task status
+
+```bash
+curl http://localhost:8000/api/tasks/<task_id> \
+  -H "Authorization: Bearer <access_token>"
+```
+
+Possible states:
+
+- `PENDING`
+- `STARTED`
+- `SUCCESS`
+- `FAILURE`
+
+### Monitoring commands
+
+```bash
+# Check broker and worker services
+docker-compose ps
+
+# RabbitMQ Management UI
+# http://localhost:15672
+
+# Watch Celery worker logs
+docker-compose logs -f celery-worker
+
+# Watch Celery Beat logs
+docker-compose logs -f celery-beat
+
+# Inspect Redis result backend DB 2
+docker-compose exec redis redis-cli -n 2
+```
+
 ## REST API
 
 The API is registered in [code/config/urls.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/config/urls.py) and implemented in [code/core/apiv1.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/apiv1.py).
@@ -425,6 +513,13 @@ The `sign-in` and `token-refresh` endpoints are provided by `mobile_auth_router`
 | PATCH | `/api/analytics/activity-logs/review` | Mark activity logs as reviewed by `action` (`admin`) |
 | DELETE | `/api/analytics/activity-logs` | Delete activity logs by `action` (`admin`) |
 
+### Async Tasks
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| POST | `/api/tasks/demo-add` | Queue demo addition task asynchronously |
+| GET | `/api/tasks/{task_id}` | Read Celery task status and result |
+
 ### Caching
 
 - Course list cache key: `courses_list:{search}:{category}:{limit}:{offset}`
@@ -444,10 +539,11 @@ Custom endpoints implemented in `core/apiv1.py` call `rate_limit()` and are limi
 
 ### Celery tasks
 
-1. `send_enrollment_email`: sends an email after successful enrollment
-2. `generate_certificate`: triggered when all lessons in a course are completed
-3. `update_course_statistics`: scheduled every 5 minutes by Celery Beat
-4. `export_course_report`: exports enrollment data as CSV content
+1. `add_numbers`: demo task for async queue/result flow
+2. `send_enrollment_email`: sends an email after successful enrollment
+3. `generate_certificate`: triggered when all lessons in a course are completed
+4. `update_course_statistics`: scheduled every 5 minutes by Celery Beat
+5. `export_course_report`: exports enrollment data as CSV content
 
 ## Task Flow Documentation
 
@@ -488,6 +584,15 @@ Custom endpoints implemented in `core/apiv1.py` call `rate_limit()` and are limi
 3. `celery-worker` consumes and executes the task
 4. Output is currently written to worker logs
 
+### Demo task flow
+
+1. Authenticated user calls `POST /api/tasks/demo-add`
+2. Django enqueues `add_numbers.apply_async(...)`
+3. RabbitMQ stores the task in the queue
+4. `celery-worker` executes the task in the background
+5. Result is stored in Redis DB 2
+6. Client polls `GET /api/tasks/{task_id}` to read status/result
+
 ## Docker Compose Services
 
 | Service | Role |
@@ -513,6 +618,15 @@ Custom endpoints implemented in `core/apiv1.py` call `rate_limit()` and are limi
   - verify `update_course_statistics`
   - verify `export_course_report`
 
+### RabbitMQ Management UI
+
+- URL: `http://localhost:15672`
+- Default credentials from `.env`: `guest` / `guest`
+- Purpose:
+  - inspect queues and exchanges
+  - verify published task count
+  - inspect consumers and connections
+
 ### Useful Docker commands
 
 ```bash
@@ -530,6 +644,9 @@ docker-compose logs -f celery-beat
 
 # Inspect Flower logs
 docker-compose logs -f flower
+
+# Inspect RabbitMQ logs
+docker-compose logs -f rabbitmq
 ```
 
 ## Automated Testing
@@ -584,6 +701,9 @@ Then open:
 ```bash
 # Open Redis DB 1 (used by Django cache / rate-limit counters)
 docker-compose exec redis redis-cli -n 1
+
+# Open Redis DB 2 (used by Celery result backend)
+docker-compose exec redis redis-cli -n 2
 
 # List keys
 KEYS *

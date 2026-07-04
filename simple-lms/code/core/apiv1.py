@@ -1,4 +1,5 @@
 from typing import List, Optional
+from celery.result import AsyncResult
 from ninja import NinjaAPI, Query
 from ninja.errors import HttpError
 from ninja_simple_jwt.auth.views.api import mobile_auth_router
@@ -11,7 +12,8 @@ from core.schemas import (
     CourseIn, CourseOut, DetailCourseOut, CourseUpdateIn,
     UserOut, UserRegisterIn, UserUpdateIn,
     MessageOut, EnrollmentOut, EnrollmentIn,
-    ProgressIn, ActivityLogOut, LearningAnalyticsOut, MongoSyncOut
+    ProgressIn, ActivityLogOut, LearningAnalyticsOut, MongoSyncOut,
+    TaskDemoIn, TaskQueuedOut, TaskResultOut
 )
 from core.utils import is_admin, is_instructor, is_student
 from core.mongo import (
@@ -22,7 +24,7 @@ from core.mongo import (
     sync_learning_analytics,
     update_activity_logs,
 )
-from core.tasks import send_enrollment_email, generate_certificate, export_course_report
+from core.tasks import add_numbers, send_enrollment_email, generate_certificate, export_course_report
 
 
 # Inisialisasi API
@@ -461,3 +463,41 @@ def remove_activity_logs(request, action: str):
     rate_limit(request)
     deleted_count = delete_activity_logs(filters={"action": action})
     return {"message": f"Deleted {deleted_count} activity logs"}
+
+
+# ======================
+# TASK DEMO ENDPOINTS (Celery / RabbitMQ)
+# ======================
+@api.post('/tasks/demo-add', response=TaskQueuedOut, auth=apiAuth, tags=["Async Tasks"])
+def queue_add_demo(request, data: TaskDemoIn):
+    rate_limit(request)
+    async_result = add_numbers.apply_async(args=[data.x, data.y], countdown=data.countdown)
+    log_activity(
+        user_id=request.user.id,
+        user_role=request.user.role,
+        action="TASK_DEMO_ADD_ENQUEUED",
+        metadata={"task_id": async_result.id, "x": data.x, "y": data.y, "countdown": data.countdown},
+        user=request.user,
+    )
+    return {
+        "message": "Task queued successfully",
+        "task_id": async_result.id,
+        "queue": "celery",
+    }
+
+
+@api.get('/tasks/{task_id}', response=TaskResultOut, auth=apiAuth, tags=["Async Tasks"])
+def get_task_status(request, task_id: str):
+    rate_limit(request)
+    task_result = AsyncResult(task_id)
+    payload = task_result.result
+    if isinstance(payload, Exception):
+        payload = str(payload)
+
+    return {
+        "task_id": task_id,
+        "status": task_result.status,
+        "ready": task_result.ready(),
+        "successful": task_result.successful() if task_result.ready() else False,
+        "result": payload,
+    }
