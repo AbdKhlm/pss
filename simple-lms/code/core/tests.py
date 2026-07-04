@@ -28,17 +28,19 @@ from core.tasks import (
     send_enrollment_email,
     update_course_statistics,
 )
-from core.utils import is_admin, is_instructor, is_student
+from core.utils import get_user_role, is_admin, is_instructor, is_student
 from courses.models import Course, User
 from courses.test_factories import TestDataFactory
 
 
 class RoleDecoratorTests(TestCase):
-    def _request_for_role(self, role, authenticated=True):
+    def _request_for_role(self, role, authenticated=True, is_superuser=False, is_staff=False):
         return SimpleNamespace(
             user=SimpleNamespace(
                 is_authenticated=authenticated,
                 role=role,
+                is_superuser=is_superuser,
+                is_staff=is_staff,
             )
         )
 
@@ -69,6 +71,20 @@ class RoleDecoratorTests(TestCase):
             protected_view(self._request_for_role("student", authenticated=False))
 
         self.assertEqual(context.exception.status_code, 401)
+
+    def test_get_user_role_maps_superuser_without_role_to_admin(self):
+        user = SimpleNamespace(role="", is_superuser=True, is_staff=True)
+
+        self.assertEqual(get_user_role(user), "admin")
+
+    def test_is_student_allows_superuser_with_blank_role(self):
+        @is_student
+        def protected_view(request):
+            return "ok"
+
+        response = protected_view(self._request_for_role("", is_superuser=True, is_staff=True))
+
+        self.assertEqual(response, "ok")
 
 
 class MongoHelperTests(TestCase):
@@ -360,6 +376,81 @@ class ApiIntegrationTests(TestCase):
         self.assertTrue(mocked_log_activity.called)
         self.assertTrue(User.objects.filter(username="newstudent").exists())
 
+    @patch("core.apiv1.log_activity")
+    def test_login_endpoint_returns_access_and_refresh_tokens(self, mocked_log_activity):
+        response = self.client.post(
+            "/api/auth/login",
+            data=json.dumps(
+                {
+                    "username": self.student.username,
+                    "password": self.student_password,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        self.assertTrue(payload["access"])
+        self.assertTrue(payload["refresh"])
+        mocked_log_activity.assert_called_once()
+
+    def test_superuser_with_blank_role_can_enroll(self):
+        admin_like_user = TestDataFactory.create_user(
+            username="legacy_admin",
+            email="legacy_admin@example.com",
+            password="LegacyAdmin123!",
+            role="",
+        )
+        admin_like_user.is_staff = True
+        admin_like_user.is_superuser = True
+        admin_like_user.save(update_fields=["is_staff", "is_superuser"])
+
+        login_response = self.client.post(
+            "/api/auth/login",
+            data=json.dumps(
+                {
+                    "username": "legacy_admin",
+                    "password": "LegacyAdmin123!",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(login_response.status_code, 200, login_response.content)
+        access_token = login_response.json()["access"]
+        headers = {"HTTP_AUTHORIZATION": f"Bearer {access_token}"}
+
+        with patch("core.apiv1.log_activity"), patch("core.apiv1.send_enrollment_email.delay"):
+            response = self.client.post(
+                "/api/enrollments",
+                data=json.dumps({"course_id": self.course.id}),
+                content_type="application/json",
+                **headers,
+            )
+
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_swagger_style_authorization_with_quoted_access_token_is_accepted(self):
+        login_response = self.client.post(
+            "/api/auth/login",
+            data=json.dumps(
+                {
+                    "username": self.student.username,
+                    "password": self.student_password,
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(login_response.status_code, 200, login_response.content)
+        access_token = login_response.json()["access"]
+        headers = {"HTTP_AUTHORIZATION": f'Bearer "{access_token}"'}
+
+        with patch("core.apiv1.log_activity"):
+            response = self.client.get("/api/auth/me", **headers)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["username"], self.student.username)
+
     @patch("core.apiv1.list_activity_logs")
     def test_admin_can_get_activity_logs(self, mocked_list_activity_logs):
         mocked_list_activity_logs.return_value = [
@@ -554,6 +645,36 @@ class ApiIntegrationTests(TestCase):
         self.assertTrue(new_course.enrollments.filter(student=self.student).exists())
         mocked_delay.assert_called_once()
         mocked_log_activity.assert_called_once()
+
+    @patch("core.apiv1.log_activity")
+    @patch("core.apiv1.send_enrollment_email.delay")
+    def test_enroll_endpoint_returns_existing_enrollment_with_200_when_already_enrolled(self, mocked_delay, mocked_log_activity):
+        headers = self.auth_header(self.student.username, self.student_password)
+        existing_course = TestDataFactory.create_course(
+            name="Existing Enrollment Course",
+            instructor=self.instructor,
+            category=self.category,
+        )
+        existing_enrollment = TestDataFactory.create_enrollment(
+            student=self.student,
+            course=existing_course,
+        )
+
+        response = self.client.post(
+            "/api/enrollments",
+            data=json.dumps({"course_id": existing_course.id}),
+            content_type="application/json",
+            **headers,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["id"], existing_enrollment.id)
+        self.assertEqual(
+            existing_course.enrollments.filter(student=self.student).count(),
+            1,
+        )
+        mocked_delay.assert_not_called()
+        mocked_log_activity.assert_not_called()
 
     @patch("core.apiv1.log_activity")
     @patch("core.apiv1.generate_certificate.delay")

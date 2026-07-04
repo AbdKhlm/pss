@@ -3,19 +3,21 @@ from celery.result import AsyncResult
 from ninja import NinjaAPI, Query
 from ninja.errors import HttpError
 from ninja_simple_jwt.auth.views.api import mobile_auth_router
-from ninja_simple_jwt.auth.ninja_auth import HttpJwtAuth
+from ninja_simple_jwt.jwt.token_operations import get_access_token_for_user, get_refresh_token_for_user
+from django.contrib.auth import authenticate
+from django.contrib.auth.signals import user_logged_in
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from courses.models import Course, Lesson, User, Category, Enrollment, Progress
 from core.schemas import (
     CourseIn, CourseOut, DetailCourseOut, CourseUpdateIn,
-    UserOut, UserRegisterIn, UserUpdateIn,
+    UserOut, UserRegisterIn, LoginIn, TokenPairOut, UserUpdateIn,
     MessageOut, EnrollmentOut, EnrollmentIn,
     ProgressIn, ActivityLogOut, LearningAnalyticsOut, MongoSyncOut,
     TaskDemoIn, TaskQueuedOut, TaskResultOut
 )
-from core.utils import is_admin, is_instructor, is_student
+from core.utils import get_user_role, is_admin, is_instructor, is_student
 from core.mongo import (
     delete_activity_logs,
     get_learning_analytics,
@@ -25,18 +27,15 @@ from core.mongo import (
     update_activity_logs,
 )
 from core.tasks import add_numbers, send_enrollment_email, generate_certificate, export_course_report
+from core.auth import SwaggerFriendlyJwtAuth
 
 
 # Inisialisasi API
 api = NinjaAPI(title="Simple LMS API", version="1.0", description="REST API for Simple LMS")
 
-# Register auth router dari ninja-simple-jwt
-# Ini menyediakan endpoint /auth/sign-in dan /auth/token-refresh
-api.add_router("/auth/", mobile_auth_router)
-
 # Inisialisasi JWT auth handler
 # Digunakan sebagai parameter auth= pada endpoint yang butuh authentication
-apiAuth = HttpJwtAuth()
+apiAuth = SwaggerFriendlyJwtAuth()
 
 
 # Rate limiting decorator (using Redis)
@@ -65,7 +64,7 @@ def clear_cache_pattern(pattern):
 
 
 def get_accessible_course_ids(user):
-    if user.role == "admin":
+    if get_user_role(user) == "admin":
         return None
     return list(Course.objects.filter(instructor=user).values_list("id", flat=True))
 
@@ -109,6 +108,34 @@ def register(request, data: UserRegisterIn):
     return new_user
 
 
+@api.post('/auth/login', response=TokenPairOut, tags=["Authentication"])
+def login(request, data: LoginIn):
+    """
+    Login endpoint for Swagger and API clients.
+
+    Use the `access` token for protected endpoints.
+    In Swagger Authorize, paste only the raw access token value.
+    """
+    rate_limit(request)
+    user = authenticate(request, username=data.username, password=data.password)
+    if user is None:
+        raise HttpError(401, "Invalid username or password")
+
+    user_logged_in.send(sender=user.__class__, request=request, user=user)
+    refresh_token, _ = get_refresh_token_for_user(user)
+    access_token, _ = get_access_token_for_user(user)
+
+    log_activity(
+        user_id=user.id,
+        user_role=user.role,
+        action="USER_LOGIN",
+        metadata={"username": user.username},
+        user=user,
+    )
+
+    return {"access": access_token, "refresh": refresh_token}
+
+
 @api.get('/auth/me', response=UserOut, auth=apiAuth, tags=["Authentication"])
 def get_current_user(request):
     rate_limit(request)
@@ -136,6 +163,11 @@ def update_profile(request, data: UserUpdateIn):
         user=user,
     )
     return user
+
+
+# Register auth router dari ninja-simple-jwt
+# Tetap menyediakan endpoint /auth/sign-in dan /auth/token-refresh untuk kompatibilitas
+api.add_router("/auth/", mobile_auth_router)
 
 
 # ======================
@@ -235,7 +267,7 @@ def create_course(request, data: CourseIn):
 def update_course(request, course_id: int, data: CourseUpdateIn):
     rate_limit(request)
     course = get_object_or_404(Course, id=course_id)
-    if request.user.role != "admin" and course.instructor != request.user:
+    if get_user_role(request.user) != "admin" and course.instructor != request.user:
         raise HttpError(403, "Forbidden")
     
     for attr, value in data.dict(exclude_unset=True).items():
@@ -286,13 +318,21 @@ def delete_course(request, course_id: int):
 # ======================
 # ENROLLMENTS ENDPOINTS
 # ======================
-@api.post('/enrollments', response={201: EnrollmentOut}, auth=apiAuth, tags=["Enrollments"])
+@api.post('/enrollments', response={200: EnrollmentOut, 201: EnrollmentOut}, auth=apiAuth, tags=["Enrollments"])
 @is_student
 def enroll(request, data: EnrollmentIn):
     rate_limit(request)
     course = get_object_or_404(Course, id=data.course_id)
-    if Enrollment.objects.filter(student=request.user, course=course).exists():
-        raise HttpError(400, "Already enrolled")
+    existing_enrollment = (
+        Enrollment.objects
+        .filter(student=request.user, course=course)
+        .select_related("course", "course__instructor")
+        .first()
+    )
+    if existing_enrollment:
+        existing_enrollment.course.teacher = existing_enrollment.course.instructor
+        return 200, existing_enrollment
+
     enrollment = Enrollment.objects.create(
         student=request.user,
         course=course,

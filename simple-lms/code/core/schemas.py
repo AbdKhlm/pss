@@ -1,5 +1,5 @@
 from typing import Optional, List
-from ninja import Schema
+from ninja import Field, Schema
 from datetime import datetime
 
 
@@ -61,6 +61,22 @@ class UserRegisterIn(Schema):
     email: str
     password: str
     role: str = "student"
+
+
+class LoginIn(Schema):
+    username: str = Field(..., description="Username akun yang sudah terdaftar.")
+    password: str = Field(..., description="Password akun.")
+
+
+class TokenPairOut(Schema):
+    access: str = Field(
+        ...,
+        description="Gunakan token ini untuk endpoint yang membutuhkan autentikasi.",
+    )
+    refresh: str = Field(
+        ...,
+        description="Gunakan hanya untuk endpoint refresh token, bukan untuk endpoint protected biasa.",
+    )
 
 
 class UserUpdateIn(Schema):
