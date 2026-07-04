@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 import os
+import sys
 
 from pathlib import Path
 from datetime import timedelta
@@ -120,6 +121,9 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 AUTH_USER_MODEL = 'courses.User'
+NINJA_SIMPLE_JWT = {
+    "USE_STATELESS_AUTH": False,
+}
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
@@ -165,3 +169,27 @@ CELERY_BEAT_SCHEDULE = {
 # MongoDB settings
 MONGODB_URI = "mongodb://mongodb:27017/"
 MONGODB_DB_NAME = "simple_lms"
+
+
+if any(arg in sys.argv for arg in {"test", "pytest"}):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "test_db.sqlite3",
+        }
+    }
+
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "simple-lms-tests",
+        }
+    }
+
+    PASSWORD_HASHERS = [
+        "django.contrib.auth.hashers.MD5PasswordHasher",
+    ]
+
+    EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True

@@ -202,6 +202,58 @@ This project is aligned with the Chapter 09 topic: advanced API integration with
 | Caching strategy explanation | Done | Documented below |
 | Task flow documentation | Done | Documented below |
 
+## Chapter 10 Coverage
+
+This project now includes automated testing for unit tests, integration tests, fixtures, simple factory helpers, coverage analysis, and API load testing with Locust.
+
+### Testing scope
+
+| Area | Implementation |
+| --- | --- |
+| Unit testing for model logic | [code/courses/tests.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/courses/tests.py) |
+| Unit testing for helpers, Mongo, tasks, and rate limiting | [code/core/tests.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/tests.py) |
+| Integration testing for API endpoints | [code/core/tests.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/tests.py) |
+| Fixture-based testing | [code/courses/fixtures/initial_data.json](file:///E:/SEMESTER%206/PSS/simple-lms/code/courses/fixtures/initial_data.json) |
+| Factory helper for test data | [code/courses/test_factories.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/courses/test_factories.py) |
+| API load testing | [code/locustfile.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/locustfile.py) |
+| Coverage dependency | [requirements.txt](file:///E:/SEMESTER%206/PSS/simple-lms/requirements.txt) |
+
+### Coverage result
+
+Latest coverage run inside the Docker container for source packages `courses` and `core`:
+
+```text
+TOTAL 93%
+```
+
+This already passes the minimum target coverage of 80% from the Chapter 10 brief.
+
+## Chapter 11 Coverage
+
+This project also includes a simple Redis caching exercise for a simulated weather API call, implemented separately from the LMS API so it can be run as an isolated lab.
+
+### Files
+
+| Deliverable | Implementation |
+| --- | --- |
+| Weather caching function | [code/chapter11/weather_api.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/chapter11/weather_api.py) |
+| Testing script | [code/chapter11/test_cache.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/chapter11/test_cache.py) |
+| Documentation report | [cache_report.md](file:///E:/SEMESTER%206/PSS/simple-lms/cache_report.md) |
+
+### Chapter 11 behavior
+
+- Cache key format: `weather:{city}`
+- Redis operations: `GET`, `SET`, `EXPIRE`
+- Cache expiry: `300` seconds
+- First call is intentionally slow because of simulated API latency
+- Second call is fast because the result is returned from Redis
+
+### Run the weather cache demo
+
+```bash
+docker-compose exec web python chapter11/test_cache.py
+```
+
 ## REST API
 
 The API is registered in [code/config/urls.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/config/urls.py) and implemented in [code/core/apiv1.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/core/apiv1.py).
@@ -341,6 +393,53 @@ docker-compose logs -f celery-beat
 # Inspect Flower logs
 docker-compose logs -f flower
 ```
+
+## Automated Testing
+
+### Run the full Django test suite
+
+```bash
+docker-compose exec web python manage.py test -v 2
+```
+
+### Run coverage
+
+```bash
+docker-compose exec web sh -c "coverage erase && coverage run --source='courses,core' manage.py test && coverage report"
+```
+
+### Test architecture
+
+- `courses/tests.py` covers model behavior, constraints, ordering, progress calculation, and fixture loading
+- `core/tests.py` covers decorators, rate limiting, Mongo helpers, Celery tasks, and API integration flows
+- During `manage.py test`, settings automatically switch to:
+  - SQLite test database
+  - local in-memory cache
+  - local email backend
+  - eager Celery execution
+
+This keeps the test suite fast, isolated, and repeatable.
+
+## Load Testing
+
+Locust configuration is available in [code/locustfile.py](file:///E:/SEMESTER%206/PSS/simple-lms/code/locustfile.py).
+
+### Run Locust
+
+```bash
+docker-compose exec web locust -f /app/locustfile.py --host=http://localhost:8000
+```
+
+Then open:
+
+- `http://localhost:8089`
+
+### Load test targets
+
+- `GET /api/courses`
+- `GET /api/courses?search=Django`
+- `GET /api/courses/1`
+- `GET /api/docs`
 
 ## Redis CLI Commands
 

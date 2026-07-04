@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from courses.models import Course, Lesson, User, Category, Enrollment, Progress
 from core.schemas import (
-    CourseIn, CourseOut, DetailCourseOut,
+    CourseIn, CourseOut, DetailCourseOut, CourseUpdateIn,
     UserOut, UserRegisterIn, UserUpdateIn,
     MessageOut, EnrollmentOut, EnrollmentIn,
     ProgressIn
@@ -45,6 +45,8 @@ def clear_cache_pattern(pattern):
     try:
         from django.core.cache import caches
         redis_cache = caches["default"]
+        if not hasattr(redis_cache, "client"):
+            return
         # Get the underlying Redis client
         client = redis_cache.client.get_client()
         for key in client.scan_iter(pattern):
@@ -208,7 +210,7 @@ def create_course(request, data: CourseIn):
 
 
 @api.patch('/courses/{course_id}', response=CourseOut, auth=apiAuth, tags=["Courses"])
-def update_course(request, course_id: int, data: CourseIn):
+def update_course(request, course_id: int, data: CourseUpdateIn):
     rate_limit(request)
     course = get_object_or_404(Course, id=course_id)
     if request.user.role != "admin" and course.instructor != request.user:
@@ -269,6 +271,7 @@ def enroll(request, data: EnrollmentIn):
         student=request.user,
         course=course,
     )
+    enrollment.course.teacher = enrollment.course.instructor
 
     # Send email via Celery
     send_enrollment_email.delay(request.user.email, course.name)
@@ -288,6 +291,8 @@ def enroll(request, data: EnrollmentIn):
 def my_enrollments(request):
     rate_limit(request)
     enrollments = Enrollment.objects.filter(student=request.user).select_related("course", "course__instructor")
+    for enrollment in enrollments:
+        enrollment.course.teacher = enrollment.course.instructor
     return enrollments
 
 
