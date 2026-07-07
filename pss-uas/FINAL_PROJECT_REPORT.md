@@ -200,9 +200,9 @@ Akun demo yang digunakan pada environment pengujian Docker:
 
 | Role | Username | Password | Keterangan |
 | --- | --- | --- | --- |
-| Admin | `docker_admin` | `DockerAdmin123!` | Digunakan untuk akses Django Admin dan validasi role admin |
-| Instructor | `demo_instructor` | `DemoInstructor123!` | Digunakan untuk membuat dan mengelola course serta quiz |
-| Student | `mahasiswa` | `mahasewa123` | Digunakan untuk enrollment, progress, quiz, dan certificate |
+| Admin | `khalim` | `admin123` | Digunakan untuk akses Django Admin dan validasi role admin |
+| Instructor | `Sumbul` | `dosen123` | Digunakan untuk membuat dan mengelola course serta quiz |
+| Student | `Daniel` | `mahasewa123` | Digunakan untuk enrollment, progress, quiz, dan certificate |
 
 ## Endpoint Penting
 
